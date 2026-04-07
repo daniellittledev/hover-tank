@@ -56,13 +56,38 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0, 1.2)
 target_position = Vector3(0, -2.5, 0)
 enabled = true
 
+[node name="HoverRayFC" type="RayCast3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.2)
+target_position = Vector3(0, -2.5, 0)
+enabled = true
+
 [node name="HoverRayFR" type="RayCast3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0, 1.2)
 target_position = Vector3(0, -2.5, 0)
 enabled = true
 
+[node name="HoverRayML" type="RayCast3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0, 0)
+target_position = Vector3(0, -2.5, 0)
+enabled = true
+
+[node name="HoverRayMC" type="RayCast3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+target_position = Vector3(0, -2.5, 0)
+enabled = true
+
+[node name="HoverRayMR" type="RayCast3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0, 0)
+target_position = Vector3(0, -2.5, 0)
+enabled = true
+
 [node name="HoverRayBL" type="RayCast3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, 0, -1.2)
+target_position = Vector3(0, -2.5, 0)
+enabled = true
+
+[node name="HoverRayBC" type="RayCast3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.2)
 target_position = Vector3(0, -2.5, 0)
 enabled = true
 
