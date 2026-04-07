@@ -1,0 +1,24 @@
+# Godot 4
+.godot/
+*.uid
+export_presets.cfg
+
+# .NET / C#
+.vs/
+obj/
+bin/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.idea/
+*.DotSettings.user
+packages/
+*.nupkg
+project.nuget.props
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
