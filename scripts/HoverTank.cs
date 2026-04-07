@@ -1,4 +1,5 @@
 using Godot;
+using HoverTank.Network;
 
 namespace HoverTank
 {
@@ -37,6 +38,7 @@ namespace HoverTank
 
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
+        private TankInput _currentInput;
 
         public override void _Ready()
         {
@@ -49,29 +51,18 @@ namespace HoverTank
             };
         }
 
+        // Called by ClientSimulation or ServerSimulation before each physics tick.
+        public void SetInput(TankInput input) => _currentInput = input;
+
         public override void _PhysicsProcess(double delta)
         {
-            float dt = (float)delta;
             ProcessHoverForces();
-            ProcessMovement();
-            ProcessJumpJets();
+            ProcessMovement(_currentInput);
+            ProcessJumpJets(_currentInput);
         }
 
         // ────────────────────────────────────────────────────────────────────
         // Hover: independent spring-damper at each corner ray.
-        //
-        // Each RayCast3D casts 2.5 m downward in its local space. The "resting"
-        // compression when hovering at HoverHeight is:
-        //   equilibriumCompression = rayLength - HoverHeight
-        // Displacement is how far from that equilibrium we currently are.
-        // Force = SpringStrength * displacement  (spring, P term)
-        //       - SpringDamping  * vertVelocity  (damper, D term)
-        //
-        // Force is clamped to ≥ 0 so it only pushes upward — gravity provides
-        // the downward pull when the tank is above hover height.
-        //
-        // ApplyForce(force, offset) applies force at a point offset from the
-        // centre of mass, producing realistic roll/pitch over uneven terrain.
         // ────────────────────────────────────────────────────────────────────
         private void ProcessHoverForces()
         {
@@ -100,17 +91,13 @@ namespace HoverTank
 
         // ────────────────────────────────────────────────────────────────────
         // Movement: thrust along local -Z (Godot's forward), yaw torque for turns.
+        // Also called directly during client reconciliation re-simulation.
         // ────────────────────────────────────────────────────────────────────
-        private void ProcessMovement()
+        private void ProcessMovement(TankInput input)
         {
-            bool forward  = Input.IsActionPressed("move_forward")  || Input.IsActionPressed("ui_up");
-            bool backward = Input.IsActionPressed("move_backward") || Input.IsActionPressed("ui_down");
-            bool left     = Input.IsActionPressed("move_left")     || Input.IsActionPressed("ui_left");
-            bool right    = Input.IsActionPressed("move_right")    || Input.IsActionPressed("ui_right");
-
             Vector3 thrustDir = Vector3.Zero;
-            if (forward)  thrustDir -= Basis.Z;
-            if (backward) thrustDir += Basis.Z;
+            if (input.Forward)  thrustDir -= Basis.Z;
+            if (input.Backward) thrustDir += Basis.Z;
 
             if (thrustDir != Vector3.Zero)
             {
@@ -120,20 +107,28 @@ namespace HoverTank
                     ApplyCentralForce(thrustDir * ThrustForce);
             }
 
-            if (left)  ApplyTorque(Vector3.Up *  TurnTorque);
-            if (right) ApplyTorque(Vector3.Up * -TurnTorque);
+            if (input.Left)  ApplyTorque(Vector3.Up *  TurnTorque);
+            if (input.Right) ApplyTorque(Vector3.Up * -TurnTorque);
         }
 
         // ────────────────────────────────────────────────────────────────────
         // Jump jets: initial burst impulse on keydown + sustained force while held.
         // ────────────────────────────────────────────────────────────────────
-        private void ProcessJumpJets()
+        private void ProcessJumpJets(TankInput input)
         {
-            if (Input.IsActionJustPressed("jump_jet"))
+            if (input.JumpJustPressed)
                 ApplyCentralImpulse(Vector3.Up * JumpImpulse);
 
-            if (Input.IsActionPressed("jump_jet"))
+            if (input.JumpJet)
                 ApplyCentralForce(Vector3.Up * JumpSustainForce);
+        }
+
+        // Called during client reconciliation: applies input forces without hover
+        // (hover forces are environment-driven and don't need re-simulation).
+        public void ApplyInputForces(TankInput input)
+        {
+            ProcessMovement(input);
+            ProcessJumpJets(input);
         }
     }
 }
