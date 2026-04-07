@@ -22,7 +22,7 @@ There is no CLI build step; Godot manages MSBuild internally.
 | `scripts/TerrainGenerator.cs` | Heightmap loader, crater carver, ArrayMesh + HeightMapShape3D |
 | `scripts/FollowCamera.cs` | Lag-smoothed follow camera |
 | `scenes/Main.tscn` | World root: sky, sun, terrain, tank instance |
-| `scenes/HoverTank.tscn` | Tank scene: body, turret, 4 hover raycasts, camera mount |
+| `scenes/HoverTank.tscn` | Tank scene: body, turret, 9 hover raycasts (3×3 grid), camera mount |
 | `terrain/heightmap.png` | 128×128 grayscale base terrain (replaceable) |
 | `project.godot` | Godot project config and input map |
 
@@ -34,6 +34,15 @@ All hover/movement parameters are Godot `[Export]` properties — adjust them in
 - `ThrustForce`, `TurnTorque`, `MaxSpeed` — movement
 - `JumpImpulse`, `JumpSustainForce` — jump jets
 - `CraterCount`, `CraterDepth`, `CraterRadiusMin/Max` — terrain shape
+
+## Weapons design notes
+
+**Turret does not rotate independently.** The `Turret` node (and its child `Barrel`) are
+`MeshInstance3D` nodes parented directly to the `HoverTank` `RigidBody3D`. They carry no
+script and have no rotation logic — they rotate only as part of the tank body. This is a
+deliberate design decision: the tank aims by turning its entire hull, Battlezone-style.
+Any future weapon system should fire along the hull's local -Z axis and must not assume an
+independently aimed turret exists.
 
 ## Conventions
 

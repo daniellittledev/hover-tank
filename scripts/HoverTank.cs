@@ -40,11 +40,17 @@ namespace HoverTank
 
         public override void _Ready()
         {
+            // 3×3 impulse grid: front/middle/back rows × left/centre/right columns.
             _hoverRays = new[]
             {
                 GetNode<RayCast3D>("HoverRayFL"),
+                GetNode<RayCast3D>("HoverRayFC"),
                 GetNode<RayCast3D>("HoverRayFR"),
+                GetNode<RayCast3D>("HoverRayML"),
+                GetNode<RayCast3D>("HoverRayMC"),
+                GetNode<RayCast3D>("HoverRayMR"),
                 GetNode<RayCast3D>("HoverRayBL"),
+                GetNode<RayCast3D>("HoverRayBC"),
                 GetNode<RayCast3D>("HoverRayBR"),
             };
         }
@@ -58,7 +64,7 @@ namespace HoverTank
         }
 
         // ────────────────────────────────────────────────────────────────────
-        // Hover: independent spring-damper at each corner ray.
+        // Hover: independent spring-damper at each point of a 3×3 ray grid.
         //
         // Each RayCast3D casts 2.5 m downward in its local space. The "resting"
         // compression when hovering at HoverHeight is:
@@ -70,8 +76,10 @@ namespace HoverTank
         // Force is clamped to ≥ 0 so it only pushes upward — gravity provides
         // the downward pull when the tank is above hover height.
         //
-        // ApplyForce(force, offset) applies force at a point offset from the
-        // centre of mass, producing realistic roll/pitch over uneven terrain.
+        // Each ray carries 1/9 of the total equilibrium load (mass*g/9 ≈ 5.4 N).
+        // Applying force at the ray's world offset from CoM produces realistic
+        // roll/pitch response — the 3×3 grid gives finer torque resolution over
+        // uneven or crater-edged terrain compared to a 4-corner layout.
         // ────────────────────────────────────────────────────────────────────
         private void ProcessHoverForces()
         {
@@ -93,8 +101,8 @@ namespace HoverTank
                 float force = SpringStrength * displacement - SpringDamping * vertVelocity;
                 if (force < 0f) force = 0f;
 
-                // Each ray takes 1/4 of the total load at equilibrium
-                ApplyForce(Vector3.Up * (force / 4f), r);
+                // Each ray takes 1/9 of the total load at equilibrium
+                ApplyForce(Vector3.Up * (force / 9f), r);
             }
         }
 
