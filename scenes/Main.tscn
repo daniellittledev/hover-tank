@@ -1,6 +1,5 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
 
-[ext_resource type="PackedScene" path="res://scenes/HoverTank.tscn" id="1_tank"]
 [ext_resource type="Script" path="res://scripts/TerrainGenerator.cs" id="2_terrain"]
 
 [sub_resource type="Environment" id="Environment_1"]
@@ -39,5 +38,4 @@ directional_shadow_mode = 2
 [node name="Terrain" type="Node3D" parent="."]
 script = ExtResource("2_terrain")
 
-[node name="HoverTank" parent="." instance=ExtResource("1_tank")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 0)
+[node name="Tanks" type="Node3D" parent="."]
