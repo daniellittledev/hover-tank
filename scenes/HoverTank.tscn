@@ -92,7 +92,7 @@ target_position = Vector3(0, -2.5, 0)
 enabled = true
 
 [node name="CameraMount" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.97, 0.242, 0, -0.242, 0.97, 0, 2.0, -6.0)
+transform = Transform3D(1, 0, 0, 0, 0.914, -0.407, 0, 0.407, 0.914, 0, 3.2, 7.5)
 
 [node name="Camera" type="Camera3D" parent="CameraMount"]
 script = ExtResource("2_cam")
