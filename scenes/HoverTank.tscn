@@ -1,31 +1,39 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/HoverTank.cs" id="1_tank"]
 [ext_resource type="Script" path="res://scripts/FollowCamera.cs" id="2_cam"]
+[ext_resource type="Script" path="res://scripts/TankMeshBuilder.cs" id="3_mesh"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hull"]
-size = Vector3(2.0, 0.6, 3.0)
-
-[sub_resource type="BoxMesh" id="BoxMesh_hull"]
-size = Vector3(2.0, 0.6, 3.0)
+size = Vector3(1.85, 0.32, 3.0)
 
 [sub_resource type="BoxMesh" id="BoxMesh_turret"]
-size = Vector3(1.0, 0.45, 1.2)
-
-[sub_resource type="StandardMaterial3D" id="Mat_hull"]
-albedo_color = Color(0.22, 0.27, 0.2, 1)
-roughness = 0.85
-metallic = 0.25
-
-[sub_resource type="StandardMaterial3D" id="Mat_turret"]
-albedo_color = Color(0.18, 0.22, 0.16, 1)
-roughness = 0.85
-metallic = 0.25
+size = Vector3(0.65, 0.20, 0.82)
 
 [sub_resource type="CylinderMesh" id="CylinderMesh_barrel"]
-top_radius = 0.06
-bottom_radius = 0.06
-height = 1.2
+top_radius = 0.052
+bottom_radius = 0.052
+height = 1.1
+
+[sub_resource type="SphereMesh" id="SphereMesh_thruster"]
+radius = 0.17
+height = 0.34
+
+[sub_resource type="StandardMaterial3D" id="Mat_hull"]
+albedo_color = Color(0.08, 0.35, 0.88, 1)
+roughness = 0.55
+metallic = 0.55
+
+[sub_resource type="StandardMaterial3D" id="Mat_turret"]
+albedo_color = Color(0.06, 0.27, 0.72, 1)
+roughness = 0.55
+metallic = 0.55
+
+[sub_resource type="StandardMaterial3D" id="Mat_thruster"]
+albedo_color = Color(0.85, 0.95, 1.0, 1)
+emission_enabled = true
+emission = Color(0.75, 0.9, 1.0, 1)
+emission_energy_multiplier = 4.0
 
 [node name="HoverTank" type="RigidBody3D"]
 script = ExtResource("1_tank")
@@ -35,18 +43,30 @@ angular_damp = 3.0
 can_sleep = false
 
 [node name="Body" type="MeshInstance3D" parent="."]
-mesh = SubResource("BoxMesh_hull")
+script = ExtResource("3_mesh")
 surface_material_override/0 = SubResource("Mat_hull")
 
 [node name="Turret" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.525, -0.2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.27, -0.2)
 mesh = SubResource("BoxMesh_turret")
 surface_material_override/0 = SubResource("Mat_turret")
 
 [node name="Barrel" type="MeshInstance3D" parent="Turret"]
-transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, -0.9)
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, -0.85)
 mesh = SubResource("CylinderMesh_barrel")
 surface_material_override/0 = SubResource("Mat_turret")
+
+[node name="Thruster" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, 1.3)
+
+[node name="ThrusterGlow" type="MeshInstance3D" parent="Thruster"]
+mesh = SubResource("SphereMesh_thruster")
+surface_material_override/0 = SubResource("Mat_thruster")
+
+[node name="ThrusterLight" type="OmniLight3D" parent="Thruster"]
+light_color = Color(0.78, 0.92, 1.0, 1)
+light_energy = 2.5
+omni_range = 3.5
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_hull")
