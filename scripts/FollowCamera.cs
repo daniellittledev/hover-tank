@@ -19,10 +19,10 @@ namespace HoverTank
     {
         // Speed at which camera position interpolates toward the mount (per second).
         // 0 = frozen, 1 = instant. Typical range: 3–8.
-        [Export] public float PositionLag = 5.0f;
+        [Export] public float PositionLag = 6.0f;
 
         // Speed at which camera rotation interpolates toward the mount.
-        [Export] public float RotationLag = 4.0f;
+        [Export] public float RotationLag = 5.0f;
 
         // World-space transform smoothed each frame
         private Transform3D _smoothTransform;
