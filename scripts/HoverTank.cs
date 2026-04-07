@@ -1,0 +1,139 @@
+using Godot;
+
+namespace HoverTank
+{
+    public partial class HoverTank : RigidBody3D
+    {
+        // ── Hover spring ────────────────────────────────────────────────────
+        // Target height the bottom of the tank floats above the ground (metres).
+        [Export] public float HoverHeight = 1.0f;
+
+        // Proportional term: force per metre of displacement from equilibrium.
+        // At rest each ray carries mass*gravity/4 ≈ 12.3 N.
+        // SpringStrength=300 gives a natural frequency of ~2.5 Hz — tank-like bob.
+        [Export] public float SpringStrength = 300f;
+
+        // Derivative term: opposes vertical velocity to damp oscillations.
+        // Critical damping ≈ 2*sqrt(k*m) = 2*sqrt(300*5) ≈ 77.
+        // 50 gives ~65% of critical — slight bounce that settles in ~2 cycles.
+        [Export] public float SpringDamping = 50f;
+
+        // ── Movement ────────────────────────────────────────────────────────
+        // Forward/back thrust force (Newtons) applied in the tank's local frame.
+        [Export] public float ThrustForce = 200f;
+
+        // Yaw torque (N·m) applied around the world-up axis for turning.
+        [Export] public float TurnTorque = 80f;
+
+        // Speed cap (m/s) in the thrust direction — prevents endless acceleration.
+        [Export] public float MaxSpeed = 12f;
+
+        // ── Jump jets ───────────────────────────────────────────────────────
+        // Instantaneous upward impulse (kg·m/s) on the first frame E is pressed.
+        [Export] public float JumpImpulse = 8f;
+
+        // Sustained upward force (N) each physics frame while E is held.
+        [Export] public float JumpSustainForce = 120f;
+
+        // ── Internal ────────────────────────────────────────────────────────
+        private RayCast3D[] _hoverRays = null!;
+
+        public override void _Ready()
+        {
+            _hoverRays = new[]
+            {
+                GetNode<RayCast3D>("HoverRayFL"),
+                GetNode<RayCast3D>("HoverRayFR"),
+                GetNode<RayCast3D>("HoverRayBL"),
+                GetNode<RayCast3D>("HoverRayBR"),
+            };
+        }
+
+        public override void _PhysicsProcess(double delta)
+        {
+            float dt = (float)delta;
+            ProcessHoverForces();
+            ProcessMovement();
+            ProcessJumpJets();
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // Hover: independent spring-damper at each corner ray.
+        //
+        // Each RayCast3D casts 2.5 m downward in its local space. The "resting"
+        // compression when hovering at HoverHeight is:
+        //   equilibriumCompression = rayLength - HoverHeight
+        // Displacement is how far from that equilibrium we currently are.
+        // Force = SpringStrength * displacement  (spring, P term)
+        //       - SpringDamping  * vertVelocity  (damper, D term)
+        //
+        // Force is clamped to ≥ 0 so it only pushes upward — gravity provides
+        // the downward pull when the tank is above hover height.
+        //
+        // ApplyForce(force, offset) applies force at a point offset from the
+        // centre of mass, producing realistic roll/pitch over uneven terrain.
+        // ────────────────────────────────────────────────────────────────────
+        private void ProcessHoverForces()
+        {
+            foreach (var ray in _hoverRays)
+            {
+                if (!ray.IsColliding()) continue;
+
+                float rayLength = -ray.TargetPosition.Y; // 2.5
+                float distToGround = ray.GlobalPosition.DistanceTo(ray.GetCollisionPoint());
+
+                float compression = rayLength - distToGround;
+                float equilibriumCompression = rayLength - HoverHeight;
+                float displacement = compression - equilibriumCompression;
+
+                // Point velocity at the ray origin (rigid body kinematics)
+                Vector3 r = ray.GlobalPosition - GlobalPosition;
+                float vertVelocity = (LinearVelocity + AngularVelocity.Cross(r)).Dot(Vector3.Up);
+
+                float force = SpringStrength * displacement - SpringDamping * vertVelocity;
+                if (force < 0f) force = 0f;
+
+                // Each ray takes 1/4 of the total load at equilibrium
+                ApplyForce(Vector3.Up * (force / 4f), r);
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // Movement: thrust along local -Z (Godot's forward), yaw torque for turns.
+        // ────────────────────────────────────────────────────────────────────
+        private void ProcessMovement()
+        {
+            bool forward  = Input.IsActionPressed("move_forward")  || Input.IsActionPressed("ui_up");
+            bool backward = Input.IsActionPressed("move_backward") || Input.IsActionPressed("ui_down");
+            bool left     = Input.IsActionPressed("move_left")     || Input.IsActionPressed("ui_left");
+            bool right    = Input.IsActionPressed("move_right")    || Input.IsActionPressed("ui_right");
+
+            Vector3 thrustDir = Vector3.Zero;
+            if (forward)  thrustDir -= Basis.Z;
+            if (backward) thrustDir += Basis.Z;
+
+            if (thrustDir != Vector3.Zero)
+            {
+                thrustDir = thrustDir.Normalized();
+                float speedInDir = LinearVelocity.Dot(thrustDir);
+                if (speedInDir < MaxSpeed)
+                    ApplyCentralForce(thrustDir * ThrustForce);
+            }
+
+            if (left)  ApplyTorque(Vector3.Up *  TurnTorque);
+            if (right) ApplyTorque(Vector3.Up * -TurnTorque);
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // Jump jets: initial burst impulse on keydown + sustained force while held.
+        // ────────────────────────────────────────────────────────────────────
+        private void ProcessJumpJets()
+        {
+            if (Input.IsActionJustPressed("jump_jet"))
+                ApplyCentralImpulse(Vector3.Up * JumpImpulse);
+
+            if (Input.IsActionPressed("jump_jet"))
+                ApplyCentralForce(Vector3.Up * JumpSustainForce);
+        }
+    }
+}
