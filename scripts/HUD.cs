@@ -38,6 +38,10 @@ namespace HoverTank
                 _tank = t;
         }
 
+        // Explicitly assign a tank (used by SplitScreenManager for per-player HUDs).
+        // Calling this bypasses the NodeAdded auto-detection.
+        public void SetTank(HoverTank tank) => _tank = tank;
+
         // ── Layout construction ──────────────────────────────────────────────
         private void BuildUI()
         {
