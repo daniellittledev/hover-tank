@@ -128,6 +128,18 @@ namespace HoverTank
             AddChild(_trail);
         }
 
+        // ── Stats ────────────────────────────────────────────────────────────
+        // Single source of truth for per-kind speed / damage / lifetime.
+        // Both WeaponManager and NetworkManager call this so the values stay in sync.
+        public static (float Speed, float Damage, float Lifetime) GetStats(ProjectileKind kind) =>
+            kind switch
+            {
+                ProjectileKind.Bullet => (90f,  5f,   2.5f),
+                ProjectileKind.Rocket => (28f,  50f,  6.0f),
+                ProjectileKind.Shell  => (45f,  100f, 6.0f),
+                _                     => (90f,  5f,   2.5f),
+            };
+
         // ── Physics update: move + collision ────────────────────────────────
 
         // Conservative margin added to the spatial grid query radius to account

@@ -13,6 +13,10 @@ namespace HoverTank
     // projectiles always fall through to their normal no-collision path.
     // In offline (Standalone) mode the grid is also empty, so every projectile
     // performs the full ray cast — preserving correct single-player behaviour.
+    //
+    // Distance queries are intentionally XZ-only to match the 2-D partitioning.
+    // The cell span is also computed from XZ radius, so the Y component never
+    // causes false negatives regardless of terrain height variation.
     public sealed class ProjectileSpatialGrid
     {
         // Global singleton — lives for the process lifetime.
@@ -69,9 +73,8 @@ namespace HoverTank
                 foreach (var p in list)
                 {
                     float ex = p.X - point.X;
-                    float ey = p.Y - point.Y;
                     float ez = p.Z - point.Z;
-                    if (ex * ex + ey * ey + ez * ez <= r2)
+                    if (ex * ex + ez * ez <= r2)
                         return true;
                 }
             }
