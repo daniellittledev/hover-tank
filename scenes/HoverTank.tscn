@@ -1,8 +1,9 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/HoverTank.cs" id="1_tank"]
 [ext_resource type="Script" path="res://scripts/FollowCamera.cs" id="2_cam"]
 [ext_resource type="Script" path="res://scripts/TankMeshBuilder.cs" id="3_mesh"]
+[ext_resource type="Script" path="res://scripts/WeaponManager.cs" id="4_weapons"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hull"]
 size = Vector3(1.85, 0.32, 3.0)
@@ -166,3 +167,21 @@ transform = Transform3D(1, 0, 0, 0, 0.914, -0.407, 0, 0.407, 0.914, 0, 3.2, 7.5)
 [node name="Camera" type="Camera3D" parent="CameraMount"]
 script = ExtResource("2_cam")
 fov = 70.0
+
+[node name="WeaponManager" type="Node3D" parent="."]
+script = ExtResource("4_weapons")
+
+[node name="MiniGunLeft" type="Marker3D" parent="WeaponManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.5, 0.2, -1.4)
+
+[node name="MiniGunRight" type="Marker3D" parent="WeaponManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 0.2, -1.4)
+
+[node name="RocketLeft" type="Marker3D" parent="WeaponManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.0, 0.15, -0.2)
+
+[node name="RocketRight" type="Marker3D" parent="WeaponManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0, 0.15, -0.2)
+
+[node name="Cannon" type="Marker3D" parent="WeaponManager"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.27, -1.6)
