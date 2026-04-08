@@ -7,46 +7,72 @@ namespace HoverTank
 {
     // Autoload singleton. Registered in project.godot as "NetworkManager".
     // Handles ENet lifecycle, player spawning, and RPC dispatch.
-    // Press F1 in-game to host, F2 to join localhost.
+    // Call Initialize(tanksRoot) from the game scene before starting a session.
     public partial class NetworkManager : Node
     {
-        private const int Port = 7777;
+        private const int Port       = 7777;
         private const int MaxClients = 8;
 
-        // Set to false on a dedicated server if you don't want a local player.
+        // Set to false on a dedicated server to skip spawning a local player.
         [Export] public bool SpawnLocalPlayer = true;
 
         private ServerSimulation? _server;
         private ClientSimulation? _client;
         private readonly Dictionary<int, RemoteEntityInterpolator> _remotes = new();
 
-        // Incremented every _PhysicsProcess. Both client and server share the
-        // same counter (server is canonical; client tracks its own local tick).
+        // Incremented every _PhysicsProcess.
         public int CurrentTick { get; private set; }
 
-        // The Node3D container in Main.tscn where tank nodes are added.
-        private Node3D _tanksRoot = null!;
+        // The Node3D container where tank nodes are added.
+        // Set by Initialize() once the game scene is ready.
+        private Node3D? _tanksRoot;
 
         public override void _Ready()
         {
-            _tanksRoot = GetNode<Node3D>("/root/Main/Tanks");
+            // Detect dedicated server: launched headless or with --server flag.
+            bool isDedicated = DisplayServer.GetName() == "headless"
+                            || OS.GetCmdlineArgs().Contains("--server");
+            if (isDedicated)
+            {
+                SpawnLocalPlayer = false;
+                GD.Print("[Net] Dedicated server mode detected — will auto-host.");
+                // Defer until GameSetup has called Initialize() and the scene tree
+                // is ready. GameSetup will call StartHost() for us in that case, but
+                // if the game is launched directly into Main.tscn we fall back to a
+                // deferred call here so the tanks root is guaranteed to exist.
+                CallDeferred(MethodName.StartHost);
+            }
         }
 
-        public override void _Input(InputEvent evt)
+        // Called by GameSetup._Ready() after the game scene is loaded.
+        public void Initialize(Node3D tanksRoot)
         {
-            if (evt is InputEventKey key && key.Pressed && !key.Echo)
-            {
-                if (key.Keycode == Key.F1) StartHost();
-                if (key.Keycode == Key.F2) StartClient("127.0.0.1");
-            }
+            _tanksRoot = tanksRoot;
         }
 
         // ── Connection setup ─────────────────────────────────────────────────
 
+        // Single-player: no network, one local tank driven by LocalInputHandler.
+        public void StartSinglePlayer()
+        {
+            if (_tanksRoot == null) { GD.PrintErr("[Net] Initialize() not called."); return; }
+
+            var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
+                         .Instantiate<HoverTank>();
+            tank.Name = "Tank_Local";
+            tank.GlobalPosition = new Vector3(0f, 5f, 0f);
+            _tanksRoot.AddChild(tank);
+
+            var handler = new LocalInputHandler { Target = tank, PlayerIndex = 0 };
+            tank.AddChild(handler);
+        }
+
         public void StartHost()
         {
+            if (_tanksRoot == null) { GD.PrintErr("[Net] Initialize() not called."); return; }
+
             var peer = new ENetMultiplayerPeer();
-            var err = peer.CreateServer(Port, MaxClients);
+            var err  = peer.CreateServer(Port, MaxClients);
             if (err != Error.Ok) { GD.PrintErr($"[Net] Host failed: {err}"); return; }
 
             Multiplayer.MultiplayerPeer = peer;
@@ -56,20 +82,52 @@ namespace HoverTank
             _server = new ServerSimulation(this);
             _client = new ClientSimulation(this);
 
-            // Spawn the host's own tank immediately (server is peer 1).
-            SpawnPlayerRpc(Multiplayer.GetUniqueId());
+            if (SpawnLocalPlayer)
+                SpawnPlayerRpc(Multiplayer.GetUniqueId());
+
             GD.Print($"[Net] Hosting on port {Port}");
         }
 
         public void StartClient(string address)
         {
+            if (_tanksRoot == null) { GD.PrintErr("[Net] Initialize() not called."); return; }
+
             var peer = new ENetMultiplayerPeer();
-            var err = peer.CreateClient(address, Port);
+            var err  = peer.CreateClient(address, Port);
             if (err != Error.Ok) { GD.PrintErr($"[Net] Connect failed: {err}"); return; }
 
-            Multiplayer.MultiplayerPeer = peer;
+            Multiplayer.MultiplayerPeer    = peer;
             Multiplayer.ConnectedToServer += OnConnectedToServer;
+            Multiplayer.ConnectionFailed  += OnConnectionFailed;
             GD.Print($"[Net] Connecting to {address}:{Port}");
+        }
+
+        // Cleanly close whatever peer is open and reset simulation state.
+        // Call this before changing back to the main menu.
+        public void Disconnect()
+        {
+            if (Multiplayer.MultiplayerPeer != null &&
+                Multiplayer.MultiplayerPeer is not OfflineMultiplayerPeer)
+            {
+                Multiplayer.MultiplayerPeer.Close();
+                Multiplayer.MultiplayerPeer = null!;
+            }
+
+            // Unsubscribe events to avoid dangling handlers on the next session.
+            Multiplayer.PeerConnected    -= OnPeerConnected;
+            Multiplayer.PeerDisconnected -= OnPeerDisconnected;
+            Multiplayer.ConnectedToServer -= OnConnectedToServer;
+            Multiplayer.ConnectionFailed  -= OnConnectionFailed;
+
+            _server    = null;
+            _client    = null;
+            _tanksRoot = null;
+
+            foreach (var interp in _remotes.Values)
+                interp.QueueFree();
+            _remotes.Clear();
+
+            GD.Print("[Net] Disconnected");
         }
 
         // ── Peer events ──────────────────────────────────────────────────────
@@ -78,9 +136,18 @@ namespace HoverTank
         {
             _client = new ClientSimulation(this);
             GD.Print("[Net] Connected to server");
+            EmitSignal(SignalName.ConnectedToServer);
         }
 
-        // Server only — called when a new client joins.
+        private void OnConnectionFailed()
+        {
+            GD.PrintErr("[Net] Connection failed");
+            EmitSignal(SignalName.ConnectionFailed);
+        }
+
+        [Signal] public delegate void ConnectedToServerEventHandler();
+        [Signal] public delegate void ConnectionFailedEventHandler();
+
         private void OnPeerConnected(long peerId)
         {
             if (!Multiplayer.IsServer()) return;
@@ -88,7 +155,6 @@ namespace HoverTank
             Rpc(MethodName.SpawnPlayerRpc, (int)peerId);
         }
 
-        // Server only — called when a client leaves.
         private void OnPeerDisconnected(long peerId)
         {
             if (!Multiplayer.IsServer()) return;
@@ -102,21 +168,20 @@ namespace HoverTank
              TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
         private void SpawnPlayerRpc(int peerId)
         {
+            if (_tanksRoot == null) return;
+
             bool isLocalPlayer = (peerId == Multiplayer.GetUniqueId());
-            bool isServer = Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer();
+            bool isServer      = Multiplayer.MultiplayerPeer != null && Multiplayer.IsServer();
 
             if (isServer)
             {
-                // Server: spawn an authoritative physics tank.
                 var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
                              .Instantiate<HoverTank>();
-                tank.Name = $"Tank_{peerId}";
+                tank.Name           = $"Tank_{peerId}";
                 tank.GlobalPosition = new Vector3(peerId % 4 * 4f, 5f, 0f);
                 _tanksRoot.AddChild(tank);
                 _server!.RegisterTank(peerId, tank);
 
-                // For the host's own tank: subscribe to fire events so we can
-                // broadcast a visual-spawn RPC to all connected clients.
                 if (isLocalPlayer && tank.Weapons != null)
                     tank.Weapons.Fired += (kind, xform) => BroadcastProjectileSpawn(kind, xform);
             }
@@ -124,40 +189,37 @@ namespace HoverTank
             {
                 if (isLocalPlayer)
                 {
-                    // Client: spawn local prediction tank, hand to ClientSimulation.
                     var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
                                  .Instantiate<HoverTank>();
-                    tank.Name = $"Tank_{peerId}";
+                    tank.Name           = $"Tank_{peerId}";
                     tank.GlobalPosition = new Vector3(0f, 5f, 0f);
                     _tanksRoot.AddChild(tank);
                     _client!.SetLocalTank(tank);
 
-                    // Local prediction: projectiles are visual-only; relay shots to server.
                     if (tank.Weapons != null)
                     {
                         tank.Weapons.FireMode = WeaponFireMode.LocalPrediction;
-                        tank.Weapons.Fired += (kind, xform) => SendFireToServer(kind, xform);
+                        tank.Weapons.Fired   += (kind, xform) => SendFireToServer(kind, xform);
                     }
                 }
                 else
                 {
-                    // Client: spawn a ghost node for remote interpolation.
                     var ghost = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
                                   .Instantiate<HoverTank>();
-                    ghost.Name = $"Tank_{peerId}";
+                    ghost.Name           = $"Tank_{peerId}";
                     ghost.GlobalPosition = new Vector3(peerId % 4 * 4f, 5f, 0f);
-                    // Disable physics on the ghost — it's driven by interpolation.
-                    ghost.Freeze = true;
-                    // Hide the camera on remote ghosts.
+                    ghost.Freeze         = true;
+
                     var cam = ghost.GetNodeOrNull<Camera3D>("CameraMount/Camera");
                     if (cam != null) cam.Current = false;
-                    // Ghost never fires locally — projectiles arrive via SpawnProjectileRpc.
+
                     if (ghost.Weapons != null)
                         ghost.Weapons.FireMode = WeaponFireMode.NetworkGhost;
+
                     _tanksRoot.AddChild(ghost);
 
                     var interp = new RemoteEntityInterpolator();
-                    interp.Name = $"Interp_{peerId}";
+                    interp.Name       = $"Interp_{peerId}";
                     interp.TargetNode = ghost;
                     AddChild(interp);
                     _remotes[peerId] = interp;
@@ -169,7 +231,7 @@ namespace HoverTank
              TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
         private void DespawnPlayerRpc(int peerId)
         {
-            _tanksRoot.GetNodeOrNull($"Tank_{peerId}")?.QueueFree();
+            _tanksRoot?.GetNodeOrNull($"Tank_{peerId}")?.QueueFree();
             if (_remotes.TryGetValue(peerId, out var interp))
             {
                 interp.QueueFree();
@@ -179,33 +241,18 @@ namespace HoverTank
         }
 
         // ── Projectile fire RPCs ─────────────────────────────────────────────
-        //
-        // Design:
-        //   • Host fires locally (Standalone WeaponManager) → Fired event →
-        //       BroadcastProjectileSpawn → SpawnProjectileRpc to all clients.
-        //   • Client fires locally (visual-only prediction) → Fired event →
-        //       SendFireToServer → SubmitFireRpc → server spawns authoritative
-        //       projectile and sends SpawnProjectileRpc to all OTHER clients.
-        //   • Other clients receive SpawnProjectileRpc → spawn visual-only projectile.
 
-        // Clients farther than this from a shot origin won't receive SpawnProjectileRpc.
-        // Chosen to cover the longest possible projectile trajectory:
-        //   bullet: 90 m/s × 2.5 s = 225 m → 200 m gives a comfortable cut-off
-        //   with no visible pop-in since bullets can't reach beyond that anyway.
         private const float ProjectileReplicationRange = 200f;
 
-        // True if the peer's tank is within ProjectileReplicationRange of 'origin'.
-        // Returns true when the tank can't be found (e.g. not yet spawned) so we
-        // err on the side of sending rather than silently dropping the RPC.
         private bool IsPeerInProjectileRange(int peerId, Vector3 origin)
         {
+            if (_tanksRoot == null) return true;
             var tank = _tanksRoot.GetNodeOrNull<HoverTank>($"Tank_{peerId}");
             if (tank == null) return true;
             return tank.GlobalPosition.DistanceSquaredTo(origin) <=
                    ProjectileReplicationRange * ProjectileReplicationRange;
         }
 
-        // Called by the host's own tank's Fired event.
         private void BroadcastProjectileSpawn(ProjectileKind kind, Transform3D xform)
         {
             var q = xform.Basis.GetRotationQuaternion();
@@ -219,7 +266,6 @@ namespace HoverTank
             }
         }
 
-        // Called by the local client's WeaponManager.Fired event.
         private void SendFireToServer(ProjectileKind kind, Transform3D xform)
         {
             var q = xform.Basis.GetRotationQuaternion();
@@ -229,9 +275,6 @@ namespace HoverTank
                   q.X, q.Y, q.Z, q.W);
         }
 
-        // Client → server: "I fired a shot from this transform."
-        // Server spawns the authoritative (damage-dealing) projectile and forwards
-        // a visual-spawn message to all other connected clients.
         [Rpc(MultiplayerApi.RpcMode.AnyPeer,
              TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
         public void SubmitFireRpc(byte kind, float px, float py, float pz,
@@ -244,10 +287,8 @@ namespace HoverTank
                 new Basis(new Quaternion(rx, ry, rz, rw)),
                 new Vector3(px, py, pz));
 
-            // Authoritative projectile on the server (deals damage).
             SpawnNetworkProjectile((ProjectileKind)kind, xform, shooterPeerId, isVisual: false);
 
-            // Tell every in-range client (excluding the shooter) to show a visual copy.
             foreach (var peerId in Multiplayer.GetPeers())
             {
                 if (peerId == shooterPeerId) continue;
@@ -256,7 +297,6 @@ namespace HoverTank
             }
         }
 
-        // Server → client: "Spawn a visual-only projectile at this transform."
         [Rpc(MultiplayerApi.RpcMode.Authority,
              TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
         public void SpawnProjectileRpc(byte kind, float px, float py, float pz,
@@ -268,13 +308,11 @@ namespace HoverTank
             SpawnNetworkProjectile((ProjectileKind)kind, xform, ownerPeerId: -1, isVisual: true);
         }
 
-        // Instantiates a Projectile node from pure network data.
-        // ownerPeerId is used to set OwnerRid so the projectile doesn't self-collide.
         private void SpawnNetworkProjectile(ProjectileKind kind, Transform3D xform,
                                              int ownerPeerId, bool isVisual)
         {
             Rid ownerRid = default;
-            if (ownerPeerId > 0)
+            if (ownerPeerId > 0 && _tanksRoot != null)
             {
                 var tank = _tanksRoot.GetNodeOrNull<HoverTank>($"Tank_{ownerPeerId}");
                 if (tank != null) ownerRid = tank.GetRid();
@@ -305,7 +343,6 @@ namespace HoverTank
 
         // ── Input RPC (client → server) ───────────────────────────────────────
 
-        // Client calls this to submit one tick's input to the server.
         [Rpc(MultiplayerApi.RpcMode.AnyPeer,
              TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered)]
         public void SubmitInputRpc(int tick, int sequence, byte flags, float throttle, float steer)
@@ -328,9 +365,6 @@ namespace HoverTank
 
         // ── Snapshot RPC (server → clients) ──────────────────────────────────
 
-        // Server calls this to push a state snapshot to one client.
-        // Data layout: [serverTick, ackedSeq, peerId0, px,py,pz, rx,ry,rz,rw,
-        //               lx,ly,lz, ax,ay,az, peerId1, …]
         [Rpc(MultiplayerApi.RpcMode.Authority,
              TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered)]
         public void ReceiveSnapshotRpc(Array data)
@@ -352,8 +386,6 @@ namespace HoverTank
 
         // ── Snapshot encoding ─────────────────────────────────────────────────
 
-        // Each client receives a snapshot with its own AckedSequence embedded.
-        // Layout per entity: peerId, px,py,pz, rx,ry,rz,rw, lx,ly,lz, ax,ay,az, health
         private Array EncodeSnapshot(StateSnapshot snap, int targetPeerId)
         {
             var data = new Array();
@@ -362,11 +394,11 @@ namespace HoverTank
             foreach (var e in snap.Entities)
             {
                 data.Add(e.PeerId);
-                data.Add(e.Position.X);    data.Add(e.Position.Y);    data.Add(e.Position.Z);
-                data.Add(e.Rotation.X);    data.Add(e.Rotation.Y);    data.Add(e.Rotation.Z);
+                data.Add(e.Position.X);         data.Add(e.Position.Y);         data.Add(e.Position.Z);
+                data.Add(e.Rotation.X);         data.Add(e.Rotation.Y);         data.Add(e.Rotation.Z);
                 data.Add(e.Rotation.W);
-                data.Add(e.LinearVelocity.X);  data.Add(e.LinearVelocity.Y);  data.Add(e.LinearVelocity.Z);
-                data.Add(e.AngularVelocity.X); data.Add(e.AngularVelocity.Y); data.Add(e.AngularVelocity.Z);
+                data.Add(e.LinearVelocity.X);   data.Add(e.LinearVelocity.Y);   data.Add(e.LinearVelocity.Z);
+                data.Add(e.AngularVelocity.X);  data.Add(e.AngularVelocity.Y);  data.Add(e.AngularVelocity.Z);
                 data.Add(e.Health);
             }
             return data;
@@ -374,7 +406,7 @@ namespace HoverTank
 
         private StateSnapshot DecodeSnapshot(Array data)
         {
-            int idx = 0;
+            int idx  = 0;
             var snap = new StateSnapshot
             {
                 ServerTick    = data[idx++].AsInt32(),
@@ -398,6 +430,6 @@ namespace HoverTank
             return snap;
         }
 
-        public Node3D GetTanksRoot() => _tanksRoot;
+        public Node3D? GetTanksRoot() => _tanksRoot;
     }
 }
