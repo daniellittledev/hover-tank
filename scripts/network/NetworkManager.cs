@@ -120,7 +120,7 @@ namespace HoverTank
                 if (isLocalPlayer && tank.Weapons != null)
                     tank.Weapons.Fired += (kind, xform) => BroadcastProjectileSpawn(kind, xform);
             }
-            else if (!isServer)
+            else
             {
                 if (isLocalPlayer)
                 {
@@ -248,11 +248,10 @@ namespace HoverTank
             SpawnNetworkProjectile((ProjectileKind)kind, xform, shooterPeerId, isVisual: false);
 
             // Tell every in-range client (excluding the shooter) to show a visual copy.
-            var origin = new Vector3(px, py, pz);
             foreach (var peerId in Multiplayer.GetPeers())
             {
                 if (peerId == shooterPeerId) continue;
-                if (!IsPeerInProjectileRange(peerId, origin)) continue;
+                if (!IsPeerInProjectileRange(peerId, xform.Origin)) continue;
                 RpcId(peerId, MethodName.SpawnProjectileRpc, kind, px, py, pz, rx, ry, rz, rw);
             }
         }
@@ -281,7 +280,7 @@ namespace HoverTank
                 if (tank != null) ownerRid = tank.GetRid();
             }
 
-            var (speed, damage, lifetime) = ProjectileStats(kind);
+            var (speed, damage, lifetime) = Projectile.GetStats(kind);
             var proj = new Projectile
             {
                 Kind         = kind,
@@ -294,16 +293,6 @@ namespace HoverTank
             GetTree().CurrentScene.AddChild(proj);
             proj.GlobalTransform = xform;
         }
-
-        // Mirrors the stats defined in WeaponManager.Fire() — kept in sync manually.
-        private static (float speed, float damage, float lifetime) ProjectileStats(ProjectileKind kind) =>
-            kind switch
-            {
-                ProjectileKind.Bullet => (90f, 5f,   2.5f),
-                ProjectileKind.Rocket => (28f, 50f,  6.0f),
-                ProjectileKind.Shell  => (45f, 100f, 6.0f),
-                _                     => (90f, 5f,   2.5f),
-            };
 
         // ── Tick loop ────────────────────────────────────────────────────────
 
