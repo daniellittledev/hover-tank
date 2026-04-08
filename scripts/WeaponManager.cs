@@ -5,8 +5,21 @@ namespace HoverTank
 {
     public enum WeaponType { MiniGun = 0, Rocket = 1, TankShell = 2 }
 
+    // Standalone   – local input drives firing; projectiles deal damage (default/offline).
+    // LocalPrediction – local input drives firing; projectiles are visual-only + fire
+    //                   the Fired event so NetworkManager can relay the shot to the server.
+    // NetworkGhost – no local input; projectile spawning is driven entirely by network
+    //               events (the Fired event is never raised in this mode).
+    public enum WeaponFireMode { Standalone, LocalPrediction, NetworkGhost }
+
     public partial class WeaponManager : Node3D
     {
+        // Controls how this weapon manager interacts with the network.
+        public WeaponFireMode FireMode { get; set; } = WeaponFireMode.Standalone;
+
+        // Raised once per individual projectile spawn (e.g. twice for a minigun burst).
+        // NetworkManager subscribes to this to relay the shot to the server / other clients.
+        public event Action<ProjectileKind, Transform3D>? Fired;
         // ── Ammo ────────────────────────────────────────────────────────────
         public int MiniGunAmmo  = 500;
         public int RocketAmmo   = 20;
@@ -49,6 +62,9 @@ namespace HoverTank
 
         public override void _Process(double delta)
         {
+            // Ghost tanks are driven entirely by network events — ignore local input.
+            if (FireMode == WeaponFireMode.NetworkGhost) return;
+
             _cooldown -= (float)delta;
 
             if (Input.IsActionJustPressed("next_weapon"))
@@ -105,15 +121,20 @@ namespace HoverTank
         {
             var proj = new Projectile
             {
-                Speed    = speed,
-                Damage   = damage,
-                Lifetime = lifetime,
-                Kind     = kind,
-                OwnerRid = _ownerRid,
+                Speed        = speed,
+                Damage       = damage,
+                Lifetime     = lifetime,
+                Kind         = kind,
+                OwnerRid     = _ownerRid,
+                // In LocalPrediction mode the server owns damage; spawn visuals only.
+                IsVisualOnly = FireMode == WeaponFireMode.LocalPrediction,
             };
             // Add to scene root so the projectile is independent of the tank
             GetTree().CurrentScene.AddChild(proj);
             proj.GlobalTransform = origin.GlobalTransform;
+
+            // Notify NetworkManager so it can relay the shot over the network.
+            Fired?.Invoke(kind, origin.GlobalTransform);
         }
 
         // Returns (current, max) ammo for a given weapon type.
