@@ -20,6 +20,7 @@ namespace HoverTank
         // Raised once per individual projectile spawn (e.g. twice for a minigun burst).
         // NetworkManager subscribes to this to relay the shot to the server / other clients.
         public event Action<ProjectileKind, Transform3D>? Fired;
+
         // ── Ammo ────────────────────────────────────────────────────────────
         public int MiniGunAmmo  = 500;
         public int RocketAmmo   = 20;
@@ -91,17 +92,15 @@ namespace HoverTank
             {
                 case WeaponType.MiniGun:
                     if (MiniGunAmmo <= 0) return;
-                    SpawnProjectile(_miniGunLeft,  speed: 90f,  damage: 5f,   lifetime: 2.5f, kind: ProjectileKind.Bullet);
-                    SpawnProjectile(_miniGunRight, speed: 90f,  damage: 5f,   lifetime: 2.5f, kind: ProjectileKind.Bullet);
+                    SpawnProjectile(_miniGunLeft,  ProjectileKind.Bullet);
+                    SpawnProjectile(_miniGunRight, ProjectileKind.Bullet);
                     MiniGunAmmo = Math.Max(0, MiniGunAmmo - 2);
                     _cooldown = MiniGunInterval;
                     break;
 
                 case WeaponType.Rocket:
                     if (RocketAmmo <= 0) return;
-                    SpawnProjectile(
-                        _rocketAlternate ? _rocketRight : _rocketLeft,
-                        speed: 28f, damage: 50f, lifetime: 6.0f, kind: ProjectileKind.Rocket);
+                    SpawnProjectile(_rocketAlternate ? _rocketRight : _rocketLeft, ProjectileKind.Rocket);
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
@@ -109,16 +108,16 @@ namespace HoverTank
 
                 case WeaponType.TankShell:
                     if (TankShellAmmo <= 0) return;
-                    SpawnProjectile(_cannon, speed: 45f, damage: 100f, lifetime: 6.0f, kind: ProjectileKind.Shell);
+                    SpawnProjectile(_cannon, ProjectileKind.Shell);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
                     break;
             }
         }
 
-        private void SpawnProjectile(Marker3D origin, float speed, float damage,
-                                      float lifetime, ProjectileKind kind)
+        private void SpawnProjectile(Marker3D origin, ProjectileKind kind)
         {
+            var (speed, damage, lifetime) = Projectile.GetStats(kind);
             var proj = new Projectile
             {
                 Speed        = speed,
