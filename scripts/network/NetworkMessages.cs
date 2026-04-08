@@ -4,40 +4,35 @@ using System.Collections.Generic;
 namespace HoverTank.Network
 {
     // ── Input ────────────────────────────────────────────────────────────────
-    // Boolean input snapshot packed into 1 byte. Sent client → server each tick.
-    // JumpJustPressed is a one-shot latch: true only on the tick the key went
-    // down, so the impulse fires exactly once regardless of network rate.
+    // Analog input snapshot. Throttle/Steer are -1..+1 floats so controller
+    // analog sticks produce proportional force. JumpJustPressed is a one-shot
+    // latch: true only on the tick the button went down.
     public struct TankInput
     {
-        public bool Forward;
-        public bool Backward;
-        public bool Left;
-        public bool Right;
+        // +1 = full forward, -1 = full backward.
+        public float Throttle;
+        // +1 = full left, -1 = full right.
+        public float Steer;
         public bool JumpJet;
         public bool JumpJustPressed;
 
         public static readonly TankInput Empty = default;
 
-        public byte Pack()
+        // Encodes only the boolean flags — axes are passed as separate floats.
+        public byte PackFlags()
         {
             byte b = 0;
-            if (Forward)         b |= 1 << 0;
-            if (Backward)        b |= 1 << 1;
-            if (Left)            b |= 1 << 2;
-            if (Right)           b |= 1 << 3;
-            if (JumpJet)         b |= 1 << 4;
-            if (JumpJustPressed) b |= 1 << 5;
+            if (JumpJet)         b |= 1 << 0;
+            if (JumpJustPressed) b |= 1 << 1;
             return b;
         }
 
-        public static TankInput Unpack(byte b) => new TankInput
+        public static TankInput FromParts(byte flags, float throttle, float steer) => new TankInput
         {
-            Forward         = (b & (1 << 0)) != 0,
-            Backward        = (b & (1 << 1)) != 0,
-            Left            = (b & (1 << 2)) != 0,
-            Right           = (b & (1 << 3)) != 0,
-            JumpJet         = (b & (1 << 4)) != 0,
-            JumpJustPressed = (b & (1 << 5)) != 0,
+            Throttle        = throttle,
+            Steer           = steer,
+            JumpJet         = (flags & (1 << 0)) != 0,
+            JumpJustPressed = (flags & (1 << 1)) != 0,
         };
     }
 

@@ -116,20 +116,17 @@ namespace HoverTank
         // ────────────────────────────────────────────────────────────────────
         private void ProcessMovement(TankInput input)
         {
-            Vector3 thrustDir = Vector3.Zero;
-            if (input.Forward)  thrustDir -= Basis.Z;
-            if (input.Backward) thrustDir += Basis.Z;
-
-            if (thrustDir != Vector3.Zero)
+            if (input.Throttle != 0f)
             {
-                thrustDir = thrustDir.Normalized();
+                // Forward is -Z in Godot; Throttle > 0 means forward.
+                Vector3 thrustDir = -Basis.Z * Mathf.Sign(input.Throttle);
                 float speedInDir = LinearVelocity.Dot(thrustDir);
                 if (speedInDir < MaxSpeed)
-                    ApplyCentralForce(thrustDir * ThrustForce);
+                    ApplyCentralForce(thrustDir * ThrustForce * Mathf.Abs(input.Throttle));
             }
 
-            if (input.Left)  ApplyTorque(Vector3.Up *  TurnTorque);
-            if (input.Right) ApplyTorque(Vector3.Up * -TurnTorque);
+            if (input.Steer != 0f)
+                ApplyTorque(Vector3.Up * TurnTorque * input.Steer);
         }
 
         // ────────────────────────────────────────────────────────────────────
