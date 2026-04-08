@@ -98,7 +98,36 @@ namespace HoverTank
 
             Multiplayer.MultiplayerPeer    = peer;
             Multiplayer.ConnectedToServer += OnConnectedToServer;
+            Multiplayer.ConnectionFailed  += OnConnectionFailed;
             GD.Print($"[Net] Connecting to {address}:{Port}");
+        }
+
+        // Cleanly close whatever peer is open and reset simulation state.
+        // Call this before changing back to the main menu.
+        public void Disconnect()
+        {
+            if (Multiplayer.MultiplayerPeer != null &&
+                Multiplayer.MultiplayerPeer is not OfflineMultiplayerPeer)
+            {
+                Multiplayer.MultiplayerPeer.Close();
+                Multiplayer.MultiplayerPeer = null!;
+            }
+
+            // Unsubscribe events to avoid dangling handlers on the next session.
+            Multiplayer.PeerConnected    -= OnPeerConnected;
+            Multiplayer.PeerDisconnected -= OnPeerDisconnected;
+            Multiplayer.ConnectedToServer -= OnConnectedToServer;
+            Multiplayer.ConnectionFailed  -= OnConnectionFailed;
+
+            _server    = null;
+            _client    = null;
+            _tanksRoot = null;
+
+            foreach (var interp in _remotes.Values)
+                interp.QueueFree();
+            _remotes.Clear();
+
+            GD.Print("[Net] Disconnected");
         }
 
         // ── Peer events ──────────────────────────────────────────────────────
@@ -107,7 +136,17 @@ namespace HoverTank
         {
             _client = new ClientSimulation(this);
             GD.Print("[Net] Connected to server");
+            EmitSignal(SignalName.ConnectedToServer);
         }
+
+        private void OnConnectionFailed()
+        {
+            GD.PrintErr("[Net] Connection failed");
+            EmitSignal(SignalName.ConnectionFailed);
+        }
+
+        [Signal] public delegate void ConnectedToServerEventHandler();
+        [Signal] public delegate void ConnectionFailedEventHandler();
 
         private void OnPeerConnected(long peerId)
         {

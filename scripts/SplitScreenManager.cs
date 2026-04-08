@@ -10,13 +10,20 @@ namespace HoverTank
     //   • Attaches LocalInputHandler to each tank (P1=WASD, P2=arrow keys).
     //   • Sets WeaponManager.InputPrefix so P2's weapon keys don't clash with P1.
     //   • Adds a per-player HUD inside each SubViewport.
+    //   • Handles Escape → pause menu with "Quit to Menu" option.
     public partial class SplitScreenManager : Node3D
     {
         private HoverTank _tank1 = null!;
         private HoverTank _tank2 = null!;
 
+        // Cached CameraMount refs — resolved once in _Ready, synced every _Process.
+        private Node3D? _mount1;
+        private Node3D? _mount2;
+
         private Node3D _camHolder1 = null!;
         private Node3D _camHolder2 = null!;
+
+        private PauseMenu _pauseMenu = null!;
 
         public override void _Ready()
         {
@@ -26,15 +33,20 @@ namespace HoverTank
             _tank1 = SpawnTank(tanksRoot, "Tank_P1", new Vector3(-4f, 5f, 0f), 0);
             _tank2 = SpawnTank(tanksRoot, "Tank_P2", new Vector3( 4f, 5f, 0f), 1);
 
+            // Cache CameraMount references — these don't change after spawn.
+            _mount1 = _tank1.GetNodeOrNull<Node3D>("CameraMount");
+            _mount2 = _tank2.GetNodeOrNull<Node3D>("CameraMount");
+
             // ── Disable the in-scene cameras — SubViewport cameras take over ──
             DisableTankCamera(_tank1);
             DisableTankCamera(_tank2);
 
             // ── Build split-screen viewports ──────────────────────────────────
-            Vector2I viewportSize = DisplayServer.WindowGetSize();
-            int halfW = viewportSize.X / 2;
-            int h     = viewportSize.Y;
+            Vector2I windowSize = DisplayServer.WindowGetSize();
+            int halfW = windowSize.X / 2;
+            int h     = windowSize.Y;
 
+            // Layer -1: renders behind all UI so the viewports fill the screen.
             var uiLayer = new CanvasLayer { Layer = -1 };
             AddChild(uiLayer);
 
@@ -48,7 +60,7 @@ namespace HoverTank
             _camHolder1 = camHolder1;
             _camHolder2 = camHolder2;
 
-            // ── HUD per player (inside SubViewport so it clips to that half) ──
+            // ── HUD per player (inside each SubViewport so it clips correctly) ─
             var hud1 = new HUD();
             subVP1.AddChild(hud1);
             hud1.SetTank(_tank1);
@@ -57,19 +69,43 @@ namespace HoverTank
             subVP2.AddChild(hud2);
             hud2.SetTank(_tank2);
 
-            // ── Divider line in the centre ────────────────────────────────────
-            AddDivider(uiLayer, viewportSize);
+            // ── Centre divider — separate CanvasLayer above the viewports ─────
+            AddDivider();
+
+            // ── Pause menu ────────────────────────────────────────────────────
+            _pauseMenu = new PauseMenu();
+            AddChild(_pauseMenu);
         }
 
         public override void _Process(double _)
         {
             // Sync each SubViewport camera to the tank's CameraMount transform.
             // CameraMount is at local +7.5 Z and angled downward — copy it directly.
-            var mount1 = _tank1.GetNodeOrNull<Node3D>("CameraMount");
-            var mount2 = _tank2.GetNodeOrNull<Node3D>("CameraMount");
+            // (Parenting across viewport boundaries is not possible in Godot 4;
+            //  manual sync here is the correct pattern.)
+            if (_mount1 != null) _camHolder1.GlobalTransform = _mount1.GlobalTransform;
+            if (_mount2 != null) _camHolder2.GlobalTransform = _mount2.GlobalTransform;
+        }
 
-            if (mount1 != null) _camHolder1.GlobalTransform = mount1.GlobalTransform;
-            if (mount2 != null) _camHolder2.GlobalTransform = mount2.GlobalTransform;
+        public override void _Input(InputEvent evt)
+        {
+            if (evt is InputEventKey key && key.Pressed && !key.Echo
+                && key.PhysicalKeycode == Key.Escape)
+            {
+                TogglePause();
+                GetViewport().SetInputAsHandled();
+            }
+        }
+
+        private void TogglePause()
+        {
+            bool pausing = !GetTree().Paused;
+            GetTree().Paused = pausing;
+
+            if (pausing)
+                _pauseMenu.Show();
+            else
+                _pauseMenu.Hide();
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
@@ -82,11 +118,9 @@ namespace HoverTank
             tank.GlobalPosition = pos;
             root.AddChild(tank);
 
-            // Input handler
             var handler = new LocalInputHandler { Target = tank, PlayerIndex = playerIndex };
             tank.AddChild(handler);
 
-            // Weapon input prefix for P2
             if (playerIndex == 1 && tank.Weapons != null)
                 tank.Weapons.InputPrefix = "p2_";
 
@@ -106,7 +140,7 @@ namespace HoverTank
         {
             var container = new SubViewportContainer
             {
-                Stretch = true,
+                Stretch           = true,
                 CustomMinimumSize = new Vector2(w, h),
             };
             container.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
@@ -114,16 +148,14 @@ namespace HoverTank
 
             var viewport = new SubViewport
             {
-                Size                  = new Vector2I(w, h),
-                OwnWorld3D            = false,
+                Size                   = new Vector2I(w, h),
+                OwnWorld3D             = false,
                 RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
-                // AudioListenerEnable3D makes this viewport respond to audio sources.
-                AudioListenerEnable3D = true,
+                AudioListenerEnable3D  = true,
             };
             container.AddChild(viewport);
 
-            // Camera holder: its GlobalTransform is updated each _Process to track
-            // the corresponding tank's CameraMount.
+            // Camera holder: GlobalTransform synced to CameraMount in _Process.
             var camHolder = new Node3D { Name = "CameraHolder" };
             viewport.AddChild(camHolder);
 
@@ -133,25 +165,26 @@ namespace HoverTank
             return (viewport, camHolder);
         }
 
-        private static void AddDivider(CanvasLayer layer, Vector2I size)
+        // 2-pixel green divider line at the centre of the screen.
+        // Uses its own CanvasLayer (layer 5) so it renders above the SubViewports
+        // (layer -1) but below the pause menu (layer 20).
+        private void AddDivider()
         {
-            var line = new ColorRect
-            {
-                Color = new Color(0.20f, 1.00f, 0.40f, 0.6f),
-            };
-            // 2-pixel vertical bar at the centre of the window.
-            line.AnchorLeft   = 0.5f; line.OffsetLeft   = -1f;
-            line.AnchorTop    = 0f;   line.OffsetTop    = 0f;
-            line.AnchorRight  = 0.5f; line.OffsetRight  =  1f;
-            line.AnchorBottom = 1f;   line.OffsetBottom = 0f;
-
-            var overlay = new CanvasLayer { Layer = 5 };
-            layer.AddChild(overlay);
+            var dividerLayer = new CanvasLayer { Layer = 5 };
+            AddChild(dividerLayer);
 
             var ctrl = new Control();
             ctrl.SetAnchorsPreset(Control.LayoutPreset.FullRect);
             ctrl.MouseFilter = Control.MouseFilterEnum.Ignore;
-            overlay.AddChild(ctrl);
+            dividerLayer.AddChild(ctrl);
+
+            var line = new ColorRect
+            {
+                Color         = new Color(0.20f, 1.00f, 0.40f, 0.6f),
+                AnchorLeft    = 0.5f, AnchorTop    = 0f,
+                AnchorRight   = 0.5f, AnchorBottom = 1f,
+                OffsetLeft    = -1f,  OffsetRight   = 1f,
+            };
             ctrl.AddChild(line);
         }
     }
