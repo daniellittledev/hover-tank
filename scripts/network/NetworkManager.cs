@@ -188,12 +188,30 @@ namespace HoverTank
         //       projectile and sends SpawnProjectileRpc to all OTHER clients.
         //   • Other clients receive SpawnProjectileRpc → spawn visual-only projectile.
 
+        // Clients farther than this from a shot origin won't receive SpawnProjectileRpc.
+        // Chosen to cover the longest possible projectile trajectory:
+        //   bullet: 90 m/s × 2.5 s = 225 m → 200 m gives a comfortable cut-off
+        //   with no visible pop-in since bullets can't reach beyond that anyway.
+        private const float ProjectileReplicationRange = 200f;
+
+        // True if the peer's tank is within ProjectileReplicationRange of 'origin'.
+        // Returns true when the tank can't be found (e.g. not yet spawned) so we
+        // err on the side of sending rather than silently dropping the RPC.
+        private bool IsPeerInProjectileRange(int peerId, Vector3 origin)
+        {
+            var tank = _tanksRoot.GetNodeOrNull<HoverTank>($"Tank_{peerId}");
+            if (tank == null) return true;
+            return tank.GlobalPosition.DistanceSquaredTo(origin) <=
+                   ProjectileReplicationRange * ProjectileReplicationRange;
+        }
+
         // Called by the host's own tank's Fired event.
         private void BroadcastProjectileSpawn(ProjectileKind kind, Transform3D xform)
         {
             var q = xform.Basis.GetRotationQuaternion();
             foreach (var peerId in Multiplayer.GetPeers())
             {
+                if (!IsPeerInProjectileRange(peerId, xform.Origin)) continue;
                 RpcId(peerId, MethodName.SpawnProjectileRpc,
                       (byte)kind,
                       xform.Origin.X, xform.Origin.Y, xform.Origin.Z,
@@ -229,10 +247,12 @@ namespace HoverTank
             // Authoritative projectile on the server (deals damage).
             SpawnNetworkProjectile((ProjectileKind)kind, xform, shooterPeerId, isVisual: false);
 
-            // Tell every other client to show a visual-only copy.
+            // Tell every in-range client (excluding the shooter) to show a visual copy.
+            var origin = new Vector3(px, py, pz);
             foreach (var peerId in Multiplayer.GetPeers())
             {
                 if (peerId == shooterPeerId) continue;
+                if (!IsPeerInProjectileRange(peerId, origin)) continue;
                 RpcId(peerId, MethodName.SpawnProjectileRpc, kind, px, py, pz, rx, ry, rz, rw);
             }
         }
