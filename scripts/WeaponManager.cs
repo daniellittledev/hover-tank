@@ -17,6 +17,10 @@ namespace HoverTank
         // Controls how this weapon manager interacts with the network.
         public WeaponFireMode FireMode { get; set; } = WeaponFireMode.Standalone;
 
+        // Input action prefix. "" for P1 (default), "p2_" for split-screen P2.
+        // Affects next_weapon and fire_weapon action names.
+        public string InputPrefix { get; set; } = "";
+
         // Raised once per individual projectile spawn (e.g. twice for a minigun burst).
         // NetworkManager subscribes to this to relay the shot to the server / other clients.
         public event Action<ProjectileKind, Transform3D>? Fired;
@@ -68,13 +72,13 @@ namespace HoverTank
 
             _cooldown -= (float)delta;
 
-            if (Input.IsActionJustPressed("next_weapon"))
+            if (Input.IsActionJustPressed(InputPrefix + "next_weapon"))
                 CycleWeapon(1);
 
             // Minigun: hold to fire. Rockets & shells: tap to fire.
             bool trigger = CurrentWeapon == WeaponType.MiniGun
-                ? Input.IsActionPressed("fire_weapon")
-                : Input.IsActionJustPressed("fire_weapon");
+                ? Input.IsActionPressed(InputPrefix + "fire_weapon")
+                : Input.IsActionJustPressed(InputPrefix + "fire_weapon");
 
             if (trigger && _cooldown <= 0f)
                 Fire();

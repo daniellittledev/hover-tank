@@ -1,8 +1,7 @@
 [gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/TerrainGenerator.cs" id="2_terrain"]
-[ext_resource type="Script" path="res://scripts/HUD.cs" id="3_hud"]
-[ext_resource type="Script" path="res://scripts/GameSetup.cs" id="4_gamesetup"]
+[ext_resource type="Script" path="res://scripts/SplitScreenManager.cs" id="3_splitscreen"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -37,8 +36,8 @@ ground_curve = 0.02
 sun_angle_max = 30.0
 sun_curve = 0.15
 
-[node name="Main" type="Node3D"]
-script = ExtResource("4_gamesetup")
+[node name="SplitScreen" type="Node3D"]
+script = ExtResource("3_splitscreen")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_1")
@@ -55,7 +54,3 @@ directional_shadow_mode = 2
 script = ExtResource("2_terrain")
 
 [node name="Tanks" type="Node3D" parent="."]
-
-[node name="HUD" type="CanvasLayer" parent="."]
-layer = 10
-script = ExtResource("3_hud")
