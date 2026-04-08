@@ -36,6 +36,16 @@ namespace HoverTank
         // Sustained upward force (N) each physics frame while E is held.
         [Export] public float JumpSustainForce = 120f;
 
+        // ── Health ──────────────────────────────────────────────────────────
+        public float MaxHealth = 100f;
+        public float Health    = 100f;
+
+        public void TakeDamage(float amount) =>
+            Health = Mathf.Max(0f, Health - amount);
+
+        // ── Weapons ──────────────────────────────────────────────────────────
+        public WeaponManager? Weapons { get; private set; }
+
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
@@ -55,6 +65,11 @@ namespace HoverTank
                 GetNode<RayCast3D>("HoverRayBC"),
                 GetNode<RayCast3D>("HoverRayBR"),
             };
+
+            Weapons = GetNodeOrNull<WeaponManager>("WeaponManager");
+
+            // Register so the HUD can find this tank by group
+            AddToGroup("hover_tanks");
         }
 
         // Called by ClientSimulation or ServerSimulation before each physics tick.
