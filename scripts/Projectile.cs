@@ -129,6 +129,11 @@ namespace HoverTank
         }
 
         // ── Physics update: move + collision ────────────────────────────────
+
+        // Conservative margin added to the spatial grid query radius to account
+        // for a tank's physical extent (BoxShape3D hull ≈ 2–3 m half-diagonal).
+        private const float TankCheckRadius = 4f;
+
         public override void _PhysicsProcess(double delta)
         {
             if (_dying) return;
@@ -146,6 +151,18 @@ namespace HoverTank
 
             if (!IsVisualOnly)
             {
+                // Spatial grid pre-filter: skip the ray cast when the server-side
+                // grid confirms no tank centre is within this step's sweep radius.
+                // The grid is only populated on the server (Count > 0); when it is
+                // empty (offline / clients) we always proceed to the full ray cast.
+                float stepRadius = Speed * (float)delta + TankCheckRadius;
+                if (ProjectileSpatialGrid.Instance.Count > 0
+                    && !ProjectileSpatialGrid.Instance.HasAnyWithin(from, stepRadius))
+                {
+                    GlobalPosition += velocity * (float)delta;
+                    return;
+                }
+
                 var space = GetWorld3D().DirectSpaceState;
                 var query = PhysicsRayQueryParameters3D.Create(from, to);
                 if (OwnerRid != default)
