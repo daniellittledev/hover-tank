@@ -138,6 +138,7 @@ namespace HoverTank
                     Rotation        = tank.GlobalBasis.GetRotationQuaternion(),
                     LinearVelocity  = tank.LinearVelocity,
                     AngularVelocity = tank.AngularVelocity,
+                    Health          = tank.Health,
                 });
                 snap.AckedSequences[peerId] = _ackedSequence.GetValueOrDefault(peerId, 0);
             }

@@ -57,6 +57,8 @@ namespace HoverTank.Network
         public Quaternion Rotation;
         public Vector3 LinearVelocity;
         public Vector3 AngularVelocity;
+        // Server-authoritative health — clients apply this to keep damage in sync.
+        public float Health;
     }
 
     // ── State snapshot ───────────────────────────────────────────────────────
