@@ -114,6 +114,11 @@ namespace HoverTank
                 tank.GlobalPosition = new Vector3(peerId % 4 * 4f, 5f, 0f);
                 _tanksRoot.AddChild(tank);
                 _server!.RegisterTank(peerId, tank);
+
+                // For the host's own tank: subscribe to fire events so we can
+                // broadcast a visual-spawn RPC to all connected clients.
+                if (isLocalPlayer && tank.Weapons != null)
+                    tank.Weapons.Fired += (kind, xform) => BroadcastProjectileSpawn(kind, xform);
             }
             else if (!isServer)
             {
@@ -126,6 +131,13 @@ namespace HoverTank
                     tank.GlobalPosition = new Vector3(0f, 5f, 0f);
                     _tanksRoot.AddChild(tank);
                     _client!.SetLocalTank(tank);
+
+                    // Local prediction: projectiles are visual-only; relay shots to server.
+                    if (tank.Weapons != null)
+                    {
+                        tank.Weapons.FireMode = WeaponFireMode.LocalPrediction;
+                        tank.Weapons.Fired += (kind, xform) => SendFireToServer(kind, xform);
+                    }
                 }
                 else
                 {
@@ -139,6 +151,9 @@ namespace HoverTank
                     // Hide the camera on remote ghosts.
                     var cam = ghost.GetNodeOrNull<Camera3D>("CameraMount/Camera");
                     if (cam != null) cam.Current = false;
+                    // Ghost never fires locally — projectiles arrive via SpawnProjectileRpc.
+                    if (ghost.Weapons != null)
+                        ghost.Weapons.FireMode = WeaponFireMode.NetworkGhost;
                     _tanksRoot.AddChild(ghost);
 
                     var interp = new RemoteEntityInterpolator();
@@ -162,6 +177,113 @@ namespace HoverTank
             }
             _server?.UnregisterTank(peerId);
         }
+
+        // ── Projectile fire RPCs ─────────────────────────────────────────────
+        //
+        // Design:
+        //   • Host fires locally (Standalone WeaponManager) → Fired event →
+        //       BroadcastProjectileSpawn → SpawnProjectileRpc to all clients.
+        //   • Client fires locally (visual-only prediction) → Fired event →
+        //       SendFireToServer → SubmitFireRpc → server spawns authoritative
+        //       projectile and sends SpawnProjectileRpc to all OTHER clients.
+        //   • Other clients receive SpawnProjectileRpc → spawn visual-only projectile.
+
+        // Called by the host's own tank's Fired event.
+        private void BroadcastProjectileSpawn(ProjectileKind kind, Transform3D xform)
+        {
+            var q = xform.Basis.GetRotationQuaternion();
+            foreach (var peerId in Multiplayer.GetPeers())
+            {
+                RpcId(peerId, MethodName.SpawnProjectileRpc,
+                      (byte)kind,
+                      xform.Origin.X, xform.Origin.Y, xform.Origin.Z,
+                      q.X, q.Y, q.Z, q.W);
+            }
+        }
+
+        // Called by the local client's WeaponManager.Fired event.
+        private void SendFireToServer(ProjectileKind kind, Transform3D xform)
+        {
+            var q = xform.Basis.GetRotationQuaternion();
+            RpcId(1, MethodName.SubmitFireRpc,
+                  (byte)kind,
+                  xform.Origin.X, xform.Origin.Y, xform.Origin.Z,
+                  q.X, q.Y, q.Z, q.W);
+        }
+
+        // Client → server: "I fired a shot from this transform."
+        // Server spawns the authoritative (damage-dealing) projectile and forwards
+        // a visual-spawn message to all other connected clients.
+        [Rpc(MultiplayerApi.RpcMode.AnyPeer,
+             TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+        public void SubmitFireRpc(byte kind, float px, float py, float pz,
+                                   float rx, float ry, float rz, float rw)
+        {
+            if (!Multiplayer.IsServer()) return;
+
+            int shooterPeerId = Multiplayer.GetRemoteSenderId();
+            var xform = new Transform3D(
+                new Basis(new Quaternion(rx, ry, rz, rw)),
+                new Vector3(px, py, pz));
+
+            // Authoritative projectile on the server (deals damage).
+            SpawnNetworkProjectile((ProjectileKind)kind, xform, shooterPeerId, isVisual: false);
+
+            // Tell every other client to show a visual-only copy.
+            foreach (var peerId in Multiplayer.GetPeers())
+            {
+                if (peerId == shooterPeerId) continue;
+                RpcId(peerId, MethodName.SpawnProjectileRpc, kind, px, py, pz, rx, ry, rz, rw);
+            }
+        }
+
+        // Server → client: "Spawn a visual-only projectile at this transform."
+        [Rpc(MultiplayerApi.RpcMode.Authority,
+             TransferMode = MultiplayerPeer.TransferModeEnum.Reliable)]
+        public void SpawnProjectileRpc(byte kind, float px, float py, float pz,
+                                        float rx, float ry, float rz, float rw)
+        {
+            var xform = new Transform3D(
+                new Basis(new Quaternion(rx, ry, rz, rw)),
+                new Vector3(px, py, pz));
+            SpawnNetworkProjectile((ProjectileKind)kind, xform, ownerPeerId: -1, isVisual: true);
+        }
+
+        // Instantiates a Projectile node from pure network data.
+        // ownerPeerId is used to set OwnerRid so the projectile doesn't self-collide.
+        private void SpawnNetworkProjectile(ProjectileKind kind, Transform3D xform,
+                                             int ownerPeerId, bool isVisual)
+        {
+            Rid ownerRid = default;
+            if (ownerPeerId > 0)
+            {
+                var tank = _tanksRoot.GetNodeOrNull<HoverTank>($"Tank_{ownerPeerId}");
+                if (tank != null) ownerRid = tank.GetRid();
+            }
+
+            var (speed, damage, lifetime) = ProjectileStats(kind);
+            var proj = new Projectile
+            {
+                Kind         = kind,
+                Speed        = speed,
+                Damage       = damage,
+                Lifetime     = lifetime,
+                OwnerRid     = ownerRid,
+                IsVisualOnly = isVisual,
+            };
+            GetTree().CurrentScene.AddChild(proj);
+            proj.GlobalTransform = xform;
+        }
+
+        // Mirrors the stats defined in WeaponManager.Fire() — kept in sync manually.
+        private static (float speed, float damage, float lifetime) ProjectileStats(ProjectileKind kind) =>
+            kind switch
+            {
+                ProjectileKind.Bullet => (90f, 5f,   2.5f),
+                ProjectileKind.Rocket => (28f, 50f,  6.0f),
+                ProjectileKind.Shell  => (45f, 100f, 6.0f),
+                _                     => (90f, 5f,   2.5f),
+            };
 
         // ── Tick loop ────────────────────────────────────────────────────────
 
@@ -222,6 +344,7 @@ namespace HoverTank
         // ── Snapshot encoding ─────────────────────────────────────────────────
 
         // Each client receives a snapshot with its own AckedSequence embedded.
+        // Layout per entity: peerId, px,py,pz, rx,ry,rz,rw, lx,ly,lz, ax,ay,az, health
         private Array EncodeSnapshot(StateSnapshot snap, int targetPeerId)
         {
             var data = new Array();
@@ -235,6 +358,7 @@ namespace HoverTank
                 data.Add(e.Rotation.W);
                 data.Add(e.LinearVelocity.X);  data.Add(e.LinearVelocity.Y);  data.Add(e.LinearVelocity.Z);
                 data.Add(e.AngularVelocity.X); data.Add(e.AngularVelocity.Y); data.Add(e.AngularVelocity.Z);
+                data.Add(e.Health);
             }
             return data;
         }
@@ -258,6 +382,7 @@ namespace HoverTank
                     Rotation        = new Quaternion(data[idx++].AsSingle(), data[idx++].AsSingle(), data[idx++].AsSingle(), data[idx++].AsSingle()),
                     LinearVelocity  = new Vector3(data[idx++].AsSingle(), data[idx++].AsSingle(), data[idx++].AsSingle()),
                     AngularVelocity = new Vector3(data[idx++].AsSingle(), data[idx++].AsSingle(), data[idx++].AsSingle()),
+                    Health          = data[idx++].AsSingle(),
                 });
             }
             snap.Entities = entities.ToArray();

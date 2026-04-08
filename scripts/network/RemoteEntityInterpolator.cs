@@ -53,6 +53,10 @@ namespace HoverTank
             // Bootstrap render time on first arrival.
             if (_renderTime < 0f)
                 _renderTime = _buffer[_head].Time - InterpolationDelay;
+
+            // Health is discrete — apply immediately rather than interpolating.
+            if (TargetNode is HoverTank ghost)
+                ghost.Health = state.Health;
         }
 
         // ── Godot callbacks ───────────────────────────────────────────────────

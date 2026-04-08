@@ -12,6 +12,10 @@ namespace HoverTank
         public ProjectileKind Kind    = ProjectileKind.Bullet;
         public Rid           OwnerRid;
 
+        // When true the projectile moves visually but skips collision detection
+        // and damage. Used on clients for projectiles owned by remote players.
+        public bool IsVisualOnly = false;
+
         private float          _age;
         private bool           _dying;
         private GpuParticles3D _trail = null!;
@@ -140,19 +144,22 @@ namespace HoverTank
             Vector3 from     = GlobalPosition;
             Vector3 to       = GlobalPosition + velocity * (float)delta;
 
-            var space = GetWorld3D().DirectSpaceState;
-            var query = PhysicsRayQueryParameters3D.Create(from, to);
-            if (OwnerRid != default)
-                query.Exclude = new Godot.Collections.Array<Rid> { OwnerRid };
-
-            var hit = space.IntersectRay(query);
-            if (hit.Count > 0)
+            if (!IsVisualOnly)
             {
-                if (hit["collider"].As<GodotObject>() is HoverTank tank)
-                    tank.TakeDamage(Damage);
+                var space = GetWorld3D().DirectSpaceState;
+                var query = PhysicsRayQueryParameters3D.Create(from, to);
+                if (OwnerRid != default)
+                    query.Exclude = new Godot.Collections.Array<Rid> { OwnerRid };
 
-                Die();
-                return;
+                var hit = space.IntersectRay(query);
+                if (hit.Count > 0)
+                {
+                    if (hit["collider"].As<GodotObject>() is HoverTank tank)
+                        tank.TakeDamage(Damage);
+
+                    Die();
+                    return;
+                }
             }
 
             GlobalPosition += velocity * (float)delta;
