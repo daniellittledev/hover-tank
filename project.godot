@@ -57,6 +57,10 @@ jump_jet={
 
 common/physics_ticks_per_second=60
 
+[autoload]
+
+NetworkManager="*res://scripts/network/NetworkManager.cs"
+
 [rendering]
 
 renderer/rendering_method="forward_plus"
