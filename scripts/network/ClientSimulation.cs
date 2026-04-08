@@ -116,12 +116,12 @@ namespace HoverTank
             if (Input.IsActionJustPressed("jump_jet"))
                 _jumpLatch = true;
 
+            // GetAxis returns -1..+1 and handles both keyboard (binary) and
+            // analog sticks (continuous) through the unified action map.
             return new TankInput
             {
-                Forward         = Input.IsActionPressed("move_forward")  || Input.IsActionPressed("ui_up"),
-                Backward        = Input.IsActionPressed("move_backward") || Input.IsActionPressed("ui_down"),
-                Left            = Input.IsActionPressed("move_left")     || Input.IsActionPressed("ui_left"),
-                Right           = Input.IsActionPressed("move_right")    || Input.IsActionPressed("ui_right"),
+                Throttle        = Input.GetAxis("move_backward", "move_forward"),
+                Steer           = Input.GetAxis("move_right",    "move_left"),
                 JumpJet         = jumpDown,
                 JumpJustPressed = _jumpLatch,
             };

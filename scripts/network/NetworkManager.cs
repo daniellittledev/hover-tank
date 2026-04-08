@@ -177,7 +177,7 @@ namespace HoverTank
         // Client calls this to submit one tick's input to the server.
         [Rpc(MultiplayerApi.RpcMode.AnyPeer,
              TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered)]
-        public void SubmitInputRpc(int tick, int sequence, byte inputByte)
+        public void SubmitInputRpc(int tick, int sequence, byte flags, float throttle, float steer)
         {
             if (!Multiplayer.IsServer()) return;
             int senderId = Multiplayer.GetRemoteSenderId();
@@ -185,13 +185,14 @@ namespace HoverTank
             {
                 Tick     = tick,
                 Sequence = sequence,
-                Input    = TankInput.Unpack(inputByte),
+                Input    = TankInput.FromParts(flags, throttle, steer),
             });
         }
 
         public void SendInput(int tick, int sequence, TankInput input)
         {
-            RpcId(1, MethodName.SubmitInputRpc, tick, sequence, input.Pack());
+            RpcId(1, MethodName.SubmitInputRpc, tick, sequence,
+                  input.PackFlags(), input.Throttle, input.Steer);
         }
 
         // ── Snapshot RPC (server → clients) ──────────────────────────────────
