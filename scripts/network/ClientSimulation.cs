@@ -131,6 +131,10 @@ namespace HoverTank
         {
             if (_localTank == null) return;
 
+            // Health is always server-authoritative — apply it unconditionally so
+            // damage registered by the server-side projectiles shows up locally.
+            _localTank.Health = serverState.Health;
+
             int slot = snap.ServerTick % RingSize;
             ref var predicted = ref _ring[slot];
             if (!predicted.Valid || predicted.Tick != snap.ServerTick) return;

@@ -12,6 +12,10 @@ namespace HoverTank
         public ProjectileKind Kind    = ProjectileKind.Bullet;
         public Rid           OwnerRid;
 
+        // When true the projectile moves visually but skips collision detection
+        // and damage. Used on clients for projectiles owned by remote players.
+        public bool IsVisualOnly = false;
+
         private float          _age;
         private bool           _dying;
         private GpuParticles3D _trail = null!;
@@ -124,7 +128,24 @@ namespace HoverTank
             AddChild(_trail);
         }
 
+        // ── Stats ────────────────────────────────────────────────────────────
+        // Single source of truth for per-kind speed / damage / lifetime.
+        // Both WeaponManager and NetworkManager call this so the values stay in sync.
+        public static (float Speed, float Damage, float Lifetime) GetStats(ProjectileKind kind) =>
+            kind switch
+            {
+                ProjectileKind.Bullet => (90f,  5f,   2.5f),
+                ProjectileKind.Rocket => (28f,  50f,  6.0f),
+                ProjectileKind.Shell  => (45f,  100f, 6.0f),
+                _                     => (90f,  5f,   2.5f),
+            };
+
         // ── Physics update: move + collision ────────────────────────────────
+
+        // Conservative margin added to the spatial grid query radius to account
+        // for a tank's physical extent (BoxShape3D hull ≈ 2–3 m half-diagonal).
+        private const float TankCheckRadius = 4f;
+
         public override void _PhysicsProcess(double delta)
         {
             if (_dying) return;
@@ -140,19 +161,34 @@ namespace HoverTank
             Vector3 from     = GlobalPosition;
             Vector3 to       = GlobalPosition + velocity * (float)delta;
 
-            var space = GetWorld3D().DirectSpaceState;
-            var query = PhysicsRayQueryParameters3D.Create(from, to);
-            if (OwnerRid != default)
-                query.Exclude = new Godot.Collections.Array<Rid> { OwnerRid };
-
-            var hit = space.IntersectRay(query);
-            if (hit.Count > 0)
+            if (!IsVisualOnly)
             {
-                if (hit["collider"].As<GodotObject>() is HoverTank tank)
-                    tank.TakeDamage(Damage);
+                // Spatial grid pre-filter: skip the ray cast when the server-side
+                // grid confirms no tank centre is within this step's sweep radius.
+                // The grid is only populated on the server (Count > 0); when it is
+                // empty (offline / clients) we always proceed to the full ray cast.
+                float stepRadius = Speed * (float)delta + TankCheckRadius;
+                if (ProjectileSpatialGrid.Instance.Count > 0
+                    && !ProjectileSpatialGrid.Instance.HasAnyWithin(from, stepRadius))
+                {
+                    GlobalPosition += velocity * (float)delta;
+                    return;
+                }
 
-                Die();
-                return;
+                var space = GetWorld3D().DirectSpaceState;
+                var query = PhysicsRayQueryParameters3D.Create(from, to);
+                if (OwnerRid != default)
+                    query.Exclude = new Godot.Collections.Array<Rid> { OwnerRid };
+
+                var hit = space.IntersectRay(query);
+                if (hit.Count > 0)
+                {
+                    if (hit["collider"].As<GodotObject>() is HoverTank tank)
+                        tank.TakeDamage(Damage);
+
+                    Die();
+                    return;
+                }
             }
 
             GlobalPosition += velocity * (float)delta;

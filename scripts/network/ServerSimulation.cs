@@ -69,9 +69,19 @@ namespace HoverTank
             _jitter[peerId].Enqueue(pkt);
         }
 
+        // Reusable scratch list for grid rebuilding — avoids a per-tick allocation.
+        private readonly List<Vector3> _gridPositions = new();
+
         // Called every physics tick from NetworkManager._PhysicsProcess.
         public void Tick(int serverTick)
         {
+            // Rebuild the spatial grid from current tank positions so projectiles
+            // can skip ray casts when no tank is near their movement step.
+            _gridPositions.Clear();
+            foreach (var tank in _tanks.Values)
+                _gridPositions.Add(tank.GlobalPosition);
+            ProjectileSpatialGrid.Instance.Rebuild(_gridPositions);
+
             foreach (var (peerId, tank) in _tanks)
             {
                 var input = DrainInput(peerId, serverTick);
@@ -138,6 +148,7 @@ namespace HoverTank
                     Rotation        = tank.GlobalBasis.GetRotationQuaternion(),
                     LinearVelocity  = tank.LinearVelocity,
                     AngularVelocity = tank.AngularVelocity,
+                    Health          = tank.Health,
                 });
                 snap.AckedSequences[peerId] = _ackedSequence.GetValueOrDefault(peerId, 0);
             }
