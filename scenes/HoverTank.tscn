@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/HoverTank.cs" id="1_tank"]
 [ext_resource type="Script" path="res://scripts/FollowCamera.cs" id="2_cam"]
@@ -34,6 +34,17 @@ albedo_color = Color(0.85, 0.95, 1.0, 1)
 emission_enabled = true
 emission = Color(0.75, 0.9, 1.0, 1)
 emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_glow"]
+size = Vector3(1.6, 0.01, 2.8)
+
+[sub_resource type="StandardMaterial3D" id="Mat_hover_glow"]
+albedo_color = Color(0.1, 0.35, 1.0, 1)
+emission_enabled = true
+emission = Color(0.15, 0.45, 1.0, 1)
+emission_energy_multiplier = 5.0
+blend_mode = 1
+cull_mode = 2
 
 [node name="HoverTank" type="RigidBody3D"]
 script = ExtResource("1_tank")
@@ -115,6 +126,39 @@ enabled = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, 0, -1.2)
 target_position = Vector3(0, -2.5, 0)
 enabled = true
+
+[node name="HoverGlow" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.16, 0)
+
+[node name="GlowDisc" type="MeshInstance3D" parent="HoverGlow"]
+mesh = SubResource("BoxMesh_glow")
+surface_material_override/0 = SubResource("Mat_hover_glow")
+cast_shadow = 0
+gi_mode = 2
+
+[node name="GlowLightFL" type="OmniLight3D" parent="HoverGlow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.1, 1.2)
+light_color = Color(0.2, 0.5, 1.0, 1)
+light_energy = 3.5
+omni_range = 3.0
+
+[node name="GlowLightFR" type="OmniLight3D" parent="HoverGlow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.1, 1.2)
+light_color = Color(0.2, 0.5, 1.0, 1)
+light_energy = 3.5
+omni_range = 3.0
+
+[node name="GlowLightBL" type="OmniLight3D" parent="HoverGlow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.8, -0.1, -1.2)
+light_color = Color(0.2, 0.5, 1.0, 1)
+light_energy = 3.5
+omni_range = 3.0
+
+[node name="GlowLightBR" type="OmniLight3D" parent="HoverGlow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.8, -0.1, -1.2)
+light_color = Color(0.2, 0.5, 1.0, 1)
+light_energy = 3.5
+omni_range = 3.0
 
 [node name="CameraMount" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.914, -0.407, 0, 0.407, 0.914, 0, 3.2, 7.5)
