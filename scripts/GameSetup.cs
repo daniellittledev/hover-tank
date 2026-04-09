@@ -23,6 +23,8 @@ namespace HoverTank
             {
                 case GameMode.SinglePlayer:
                     nm.StartSinglePlayer();
+                    var waveManager = new WaveManager { Name = "WaveManager" };
+                    AddChild(waveManager);
                     break;
 
                 case GameMode.NetworkHost:
