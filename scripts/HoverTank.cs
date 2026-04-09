@@ -139,20 +139,11 @@ namespace HoverTank
             UpdateEngineAudio();
         }
 
-        // Modulates the engine hum pitch and volume to match throttle + jump state.
-        // Lerp factor 0.08 at 60 Hz gives a ~0.18 s response time.
         private void UpdateEngineAudio()
         {
             if (_enginePlayer == null) return;
-
-            float throttle = Mathf.Abs(_currentInput.Throttle);
-            bool  jumping  = _currentInput.JumpJet;
-
-            float targetPitch = jumping ? 1.55f : 0.75f + 0.55f * throttle; // 0.75–1.30 idle→full
-            float targetVol   = jumping ? -4f   : -14f  + 8f   * throttle;  // -14–-6 dB
-
-            _enginePlayer.PitchScale = Mathf.Lerp(_enginePlayer.PitchScale, targetPitch, 0.08f);
-            _enginePlayer.VolumeDb   = Mathf.Lerp(_enginePlayer.VolumeDb,   targetVol,   0.08f);
+            AudioManager.Instance!.UpdateEngineThrottle(
+                _enginePlayer, Mathf.Abs(_currentInput.Throttle), _currentInput.JumpJet);
         }
 
         // ────────────────────────────────────────────────────────────────────

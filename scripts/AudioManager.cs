@@ -34,9 +34,7 @@ namespace HoverTank
 
         // Pool of spatial players reused for all one-shot sounds.
         private AudioStreamPlayer3D[] _pool = null!;
-        private int _poolNext = 0; // round-robin index for pool stealing
-
-        private AudioStreamPlayer _ambientPlayer = null!;
+        private int _poolNext; // round-robin steal index, always kept in [0, PoolSize)
 
         public override void _Ready()
         {
@@ -92,6 +90,17 @@ namespace HoverTank
             PlayAt(_explosionLargeStream, position, 0f, 0.9f + (float)GD.RandRange(0.0, 0.15));
         }
 
+        // Called by HoverTank._PhysicsProcess() to modulate the engine hum each tick.
+        // All audio tuning constants live here, not in the physics script.
+        // Lerp factor 0.08 at 60 Hz gives a ~0.18 s response time.
+        public void UpdateEngineThrottle(AudioStreamPlayer3D player, float throttle, bool jumping)
+        {
+            float targetPitch = jumping ? 1.55f : 0.75f + 0.55f * throttle; // 0.75–1.30 idle→full, 1.55 jump
+            float targetVol   = jumping ? -4f   : -14f  + 8f   * throttle;  // -14–-6 dB idle→full, -4 jump
+            player.PitchScale = Mathf.Lerp(player.PitchScale, targetPitch, 0.08f);
+            player.VolumeDb   = Mathf.Lerp(player.VolumeDb,   targetVol,   0.08f);
+        }
+
         // ── Internal pool ───────────────────────────────────────────────────
 
         private void PlayAt(AudioStreamWAV stream, Vector3 pos, float volumeDb, float pitch)
@@ -112,8 +121,8 @@ namespace HoverTank
                 if (!_pool[i].Playing) return _pool[i];
             }
             // Pool exhausted: steal the next slot round-robin.
-            var stolen = _pool[_poolNext % PoolSize];
-            _poolNext++;
+            var stolen = _pool[_poolNext];
+            _poolNext = (_poolNext + 1) % PoolSize;
             stolen.Stop();
             return stolen;
         }
@@ -136,13 +145,12 @@ namespace HoverTank
 
         private void StartAmbient()
         {
-            _ambientPlayer = new AudioStreamPlayer
+            AddChild(new AudioStreamPlayer
             {
                 Stream   = _ambientStream,
                 VolumeDb = -20f,
                 Autoplay = true,
-            };
-            AddChild(_ambientPlayer);
+            });
         }
 
         // ── PCM generation ──────────────────────────────────────────────────

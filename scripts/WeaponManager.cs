@@ -122,9 +122,6 @@ namespace HoverTank
         private void Fire()
         {
             Vector3? turretFwd = _turret?.GetAimForward();
-            Vector3  soundPos  = GetParent() is Node3D parent3D
-                                 ? parent3D.GlobalPosition
-                                 : GlobalPosition;
 
             switch (CurrentWeapon)
             {
@@ -135,7 +132,7 @@ namespace HoverTank
                     SpawnProjectile(_miniGunRight, ProjectileKind.Bullet);
                     MiniGunAmmo = Math.Max(0, MiniGunAmmo - 2);
                     _cooldown = MiniGunInterval;
-                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Bullet, soundPos);
+                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Bullet, GlobalPosition);
                     break;
 
                 case WeaponType.Rocket:
@@ -148,7 +145,7 @@ namespace HoverTank
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
-                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Rocket, soundPos);
+                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Rocket, GlobalPosition);
                     break;
 
                 case WeaponType.TankShell:
@@ -157,7 +154,7 @@ namespace HoverTank
                     SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: turretFwd);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
-                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, soundPos);
+                    AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, GlobalPosition);
                     break;
             }
         }
