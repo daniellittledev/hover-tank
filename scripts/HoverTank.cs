@@ -5,6 +5,14 @@ namespace HoverTank
 {
     public partial class HoverTank : RigidBody3D
     {
+        // ── Enemy flag ───────────────────────────────────────────────────────
+        // Set to true before AddChild to configure this tank as an AI enemy:
+        // disables the player camera and suppresses camera-driven turret aim.
+        [Export] public bool IsEnemy = false;
+
+        // Emitted once when Health first reaches zero.
+        [Signal] public delegate void DiedEventHandler();
+
         // ── Hover spring ────────────────────────────────────────────────────
         // Target height the bottom of the tank floats above the ground (metres).
         [Export] public float HoverHeight = 1.0f;
@@ -40,8 +48,18 @@ namespace HoverTank
         public float MaxHealth = 100f;
         public float Health    = 100f;
 
-        public void TakeDamage(float amount) =>
+        private bool _died = false;
+
+        public void TakeDamage(float amount)
+        {
+            if (_died) return;
             Health = Mathf.Max(0f, Health - amount);
+            if (Health == 0f)
+            {
+                _died = true;
+                EmitSignal(SignalName.Died);
+            }
+        }
 
         // ── Auto-steer (Halo-style) ──────────────────────────────────────────
         // Proportional gain: torque per radian of yaw error.
@@ -80,7 +98,16 @@ namespace HoverTank
             AimCamera = GetNodeOrNull<FollowCamera>("CameraMount/Camera");
             _turret   = GetNodeOrNull<TurretController>("Turret");
 
-            // Register so the HUD can find this tank by group
+            // Enemy tanks don't use a player camera — free it to avoid viewport
+            // conflicts and null out AimCamera so the turret is AI-driven.
+            if (IsEnemy)
+            {
+                var camMount = GetNodeOrNull("CameraMount");
+                camMount?.QueueFree();
+                AimCamera = null;
+            }
+
+            // Register so the HUD and AI can find tanks by group
             AddToGroup("hover_tanks");
         }
 
