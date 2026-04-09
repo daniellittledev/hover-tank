@@ -57,6 +57,7 @@ namespace HoverTank
             if (Health == 0f)
             {
                 _died = true;
+                AudioManager.Instance?.PlayExplosion(GlobalPosition);
                 EmitSignal(SignalName.Died);
             }
         }
@@ -77,6 +78,7 @@ namespace HoverTank
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
+        private AudioStreamPlayer3D? _enginePlayer;
 
         public override void _Ready()
         {
@@ -103,6 +105,14 @@ namespace HoverTank
 
             // Register so the HUD and AI can find tanks by group
             AddToGroup("hover_tanks");
+
+            // Attach a looping engine-hum player. Works for both player and enemy
+            // tanks — 3D attenuation handles distance falloff for enemy units.
+            if (AudioManager.Instance != null)
+            {
+                _enginePlayer = AudioManager.Instance.CreateEnginePlayer();
+                AddChild(_enginePlayer);
+            }
         }
 
         // Called by ClientSimulation or ServerSimulation before each physics tick.
@@ -125,6 +135,15 @@ namespace HoverTank
             // Null when no camera exists (server-side tanks, bots).
             if (Weapons != null)
                 Weapons.AimTarget = AimCamera?.AimTarget;
+
+            UpdateEngineAudio();
+        }
+
+        private void UpdateEngineAudio()
+        {
+            if (_enginePlayer == null) return;
+            AudioManager.Instance!.UpdateEngineThrottle(
+                _enginePlayer, Mathf.Abs(_currentInput.Throttle), _currentInput.JumpJet);
         }
 
         // ────────────────────────────────────────────────────────────────────

@@ -226,6 +226,12 @@ namespace HoverTank
             if (_dying) return;
             _dying = true;
 
+            // Play impact sound only on real collisions, not range timeouts.
+            // Visual-only projectiles (client ghosts) skip the sound — the
+            // authoritative server projectile plays it for the remote player.
+            if (_age < Lifetime && !IsVisualOnly)
+                AudioManager.Instance?.PlayImpact(Kind, GlobalPosition);
+
             _trail.Emitting = false;
             // Reparent trail to the scene root so it outlives this node
             _trail.Reparent(GetTree().CurrentScene);
