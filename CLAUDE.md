@@ -40,6 +40,7 @@ Only add entries here when future changes are very likely to need them.
 - **Input actions**: Defined in `project.godot` under `[input]`, not in code. Add new actions there.
 - **Scene ownership**: `Main.tscn` owns terrain and instances `HoverTank.tscn`. Camera is a child of the tank, mounted to `CameraMount`, driven by `FollowCamera.cs`.
 - **No autoloads**: All state is script-local. Use signals for cross-scene communication.
+- **Cache node refs and RIDs in `_Ready`**: Never call `GetParent()`, `GetNode()`, or `.GetRid()` in hot paths (`_Process`, `_PhysicsProcess`, `Fire()`). Resolve and store them as private fields during `_Ready`. This pattern already covers `_hoverRays`, `_ownerRid`, `_tankBody`, `_turret`, etc. — apply it consistently to any new cross-node reference.
 
 ## Session logs
 
