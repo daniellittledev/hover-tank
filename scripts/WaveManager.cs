@@ -1,4 +1,5 @@
 using Godot;
+using System;
 
 namespace HoverTank
 {
@@ -63,6 +64,15 @@ namespace HoverTank
 
         // Spawn radius from world origin (metres).
         private const float SpawnRadius = 65f;
+
+        // ── Pickup config ─────────────────────────────────────────────────────
+        // How many pickups to drop at the start of each wave.
+        private const int   PickupsPerWave     = 4;
+        // Maximum pickups allowed on the field at once (prevents pile-up on later waves).
+        private const int   MaxPickupsOnField  = 10;
+        // Pickups spawn between MinPickupDist and MaxPickupDist metres from the player.
+        private const float MinPickupDist      = 12f;
+        private const float MaxPickupDist      = 35f;
 
         public override void _Ready()
         {
@@ -136,6 +146,7 @@ namespace HoverTank
 
             WaveConfig cfg = GetWaveConfig(_currentWave);
             SpawnWave(cfg);
+            SpawnPickupsForWave();
             ShowBanner($"WAVE  {_currentWave}");
             UpdateEnemyCount();
         }
@@ -234,6 +245,51 @@ namespace HoverTank
             if (_state == WaveState.GameOver) return;
             _state = WaveState.GameOver;
             ShowGameOverOverlay();
+        }
+
+        // ── Pickup spawning ───────────────────────────────────────────────────
+
+        private void SpawnPickupsForWave()
+        {
+            int existing = GetTree().GetNodesInGroup("pickups").Count;
+            int toSpawn  = Math.Min(PickupsPerWave, MaxPickupsOnField - existing);
+            if (toSpawn <= 0) return;
+
+            Vector3 center = FindPlayerPosition();
+
+            var types = new[]
+            {
+                PickupType.Health,
+                PickupType.MiniGunAmmo,
+                PickupType.RocketAmmo,
+                PickupType.TankShellAmmo,
+            };
+
+            for (int i = 0; i < toSpawn; i++)
+                SpawnPickup(center, types[i % types.Length]);
+        }
+
+        private Vector3 FindPlayerPosition()
+        {
+            foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
+            {
+                if (node is HoverTank tank && !tank.IsEnemy && !tank.IsFriendlyAI)
+                    return tank.GlobalPosition;
+            }
+            return Vector3.Zero;
+        }
+
+        private void SpawnPickup(Vector3 near, PickupType type)
+        {
+            float angle = GD.Randf() * Mathf.Tau;
+            float dist  = MinPickupDist + GD.Randf() * (MaxPickupDist - MinPickupDist);
+            float x     = near.X + Mathf.Sin(angle) * dist;
+            float z     = near.Z + Mathf.Cos(angle) * dist;
+            float y     = GetTerrainHeight(x, z) + 1.5f;
+
+            var pickup = new Pickup { Type = type };
+            GetTree().CurrentScene.AddChild(pickup);
+            pickup.GlobalPosition = new Vector3(x, y, z);
         }
 
         // ── Terrain height probe ──────────────────────────────────────────────
