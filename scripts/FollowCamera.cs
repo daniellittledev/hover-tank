@@ -154,8 +154,8 @@ namespace HoverTank
             // a screen-plane displacement regardless of camera orientation.
             if (_shakeAmplitude > 0.001f)
             {
-                GlobalPosition += GlobalBasis.X * ((float)GD.RandRange(-1.0, 1.0) * _shakeAmplitude);
-                GlobalPosition += GlobalBasis.Y * ((float)GD.RandRange(-1.0, 1.0) * _shakeAmplitude);
+                GlobalPosition += (GlobalBasis.X * (float)GD.RandRange(-1.0, 1.0)
+                                 + GlobalBasis.Y * (float)GD.RandRange(-1.0, 1.0)) * _shakeAmplitude;
                 _shakeAmplitude = Mathf.Max(0f, _shakeAmplitude - ShakeDecay * dt);
             }
 

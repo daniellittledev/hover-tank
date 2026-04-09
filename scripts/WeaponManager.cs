@@ -41,9 +41,10 @@ namespace HoverTank
 
         // ── State ────────────────────────────────────────────────────────────
         public WeaponType CurrentWeapon { get; private set; } = WeaponType.MiniGun;
-        private bool  _rocketAlternate;
-        private float _cooldown;
-        private Rid   _ownerRid;
+        private bool         _rocketAlternate;
+        private float        _cooldown;
+        private Rid          _ownerRid;
+        private RigidBody3D? _tankBody;
 
         // ── Fire points (Marker3D children set in scene) ─────────────────────
         private Marker3D _miniGunLeft  = null!;
@@ -105,9 +106,12 @@ namespace HoverTank
 
             _turret = GetParent().GetNodeOrNull<TurretController>("Turret");
 
-            // Cache owner RID so projectiles can exclude the firing tank
+            // Cache parent body so projectiles can exclude it and recoil can be applied.
             if (GetParent() is RigidBody3D rb)
+            {
                 _ownerRid = rb.GetRid();
+                _tankBody = rb;
+            }
 
             // Create muzzle flash lights parented to each fire point so they
             // move with the tank automatically.
@@ -227,9 +231,7 @@ namespace HoverTank
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
-                    // Light recoil pushes the tank backward
-                    if (GetParent() is RigidBody3D rbR)
-                        rbR.ApplyCentralImpulse(rbR.GlobalBasis.Z * 3f);
+                    _tankBody?.ApplyCentralImpulse(_tankBody.GlobalBasis.Z * 3f);
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Rocket, GlobalPosition);
                     break;
 
@@ -240,10 +242,8 @@ namespace HoverTank
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
                     _cannonFlashTimer = FlashDuration;
-                    // Heavy recoil — shoves the tank backward and the spring-lag
-                    // camera makes the kick visible to the player.
-                    if (GetParent() is RigidBody3D rbS)
-                        rbS.ApplyCentralImpulse(rbS.GlobalBasis.Z * 10f);
+                    // Spring-lag camera turns this backward shove into a visible kick.
+                    _tankBody?.ApplyCentralImpulse(_tankBody.GlobalBasis.Z * 10f);
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, GlobalPosition);
                     break;
             }
