@@ -249,10 +249,9 @@ namespace HoverTank
         {
             var scene = GetTree().CurrentScene;
 
-            // Particle parameters vary by projectile type.
             Color baseColor;
             int   amount;
-            float lifetime, velMin, velMax, scaleMin, scaleMax;
+            float lifetime, velMin, velMax, scaleMin, scaleMax, flashEnergy, flashRange;
 
             switch (kind)
             {
@@ -261,18 +260,21 @@ namespace HoverTank
                     amount    = 8;   lifetime = 0.25f;
                     velMin    = 2f;  velMax   = 8f;
                     scaleMin  = 0.02f; scaleMax = 0.06f;
+                    flashEnergy = 1.5f; flashRange = 2f;
                     break;
                 case ProjectileKind.Rocket:
                     baseColor = new Color(1f, 0.50f, 0.10f);
                     amount    = 30;  lifetime = 0.80f;
                     velMin    = 3f;  velMax   = 12f;
                     scaleMin  = 0.08f; scaleMax = 0.25f;
+                    flashEnergy = 4f; flashRange = 6f;
                     break;
                 default: // Shell
                     baseColor = new Color(1f, 0.40f, 0.05f);
                     amount    = 60;  lifetime = 1.20f;
                     velMin    = 5f;  velMax   = 20f;
                     scaleMin  = 0.12f; scaleMax = 0.40f;
+                    flashEnergy = 8f; flashRange = 12f;
                     break;
             }
 
@@ -301,13 +303,6 @@ namespace HoverTank
             scene.AddChild(burst);
             burst.GlobalPosition   = pos;
 
-            // Brief point-light flash to illuminate the impact area.
-            float flashEnergy = kind == ProjectileKind.Shell   ? 8f
-                              : kind == ProjectileKind.Rocket  ? 4f
-                              :                                  1.5f;
-            float flashRange  = kind == ProjectileKind.Shell   ? 12f
-                              : kind == ProjectileKind.Rocket  ? 6f
-                              :                                  2f;
             var flash = new OmniLight3D
             {
                 LightColor    = new Color(1f, 0.65f, 0.20f),
