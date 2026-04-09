@@ -230,7 +230,10 @@ namespace HoverTank
             // Visual-only projectiles (client ghosts) skip the sound — the
             // authoritative server projectile plays it for the remote player.
             if (_age < Lifetime && !IsVisualOnly)
+            {
                 AudioManager.Instance?.PlayImpact(Kind, GlobalPosition);
+                SpawnImpactEffect(Kind, GlobalPosition);
+            }
 
             _trail.Emitting = false;
             // Reparent trail to the scene root so it outlives this node
@@ -239,6 +242,87 @@ namespace HoverTank
             timer.Timeout += _trail.QueueFree;
 
             QueueFree();
+        }
+
+        // ── Impact particle burst + light flash ──────────────────────────────
+        private void SpawnImpactEffect(ProjectileKind kind, Vector3 pos)
+        {
+            var scene = GetTree().CurrentScene;
+
+            // Particle parameters vary by projectile type.
+            Color baseColor;
+            int   amount;
+            float lifetime, velMin, velMax, scaleMin, scaleMax;
+
+            switch (kind)
+            {
+                case ProjectileKind.Bullet:
+                    baseColor = new Color(1f, 0.85f, 0.30f);
+                    amount    = 8;   lifetime = 0.25f;
+                    velMin    = 2f;  velMax   = 8f;
+                    scaleMin  = 0.02f; scaleMax = 0.06f;
+                    break;
+                case ProjectileKind.Rocket:
+                    baseColor = new Color(1f, 0.50f, 0.10f);
+                    amount    = 30;  lifetime = 0.80f;
+                    velMin    = 3f;  velMax   = 12f;
+                    scaleMin  = 0.08f; scaleMax = 0.25f;
+                    break;
+                default: // Shell
+                    baseColor = new Color(1f, 0.40f, 0.05f);
+                    amount    = 60;  lifetime = 1.20f;
+                    velMin    = 5f;  velMax   = 20f;
+                    scaleMin  = 0.12f; scaleMax = 0.40f;
+                    break;
+            }
+
+            var burst = new GpuParticles3D();
+            var pmat  = new ParticleProcessMaterial
+            {
+                Direction          = Vector3.Up,
+                Spread             = 180f,
+                InitialVelocityMin = velMin,
+                InitialVelocityMax = velMax,
+                Gravity            = new Vector3(0f, -5f, 0f),
+                ScaleMin           = scaleMin,
+                ScaleMax           = scaleMax,
+            };
+            var grad = new Gradient();
+            grad.SetColor(0, new Color(baseColor.R, baseColor.G, baseColor.B, 0.95f));
+            grad.SetColor(1, new Color(0.15f, 0.15f, 0.15f, 0.0f)); // fade to smoke
+            pmat.ColorRamp       = new GradientTexture1D { Gradient = grad };
+            burst.ProcessMaterial  = pmat;
+            burst.Amount           = amount;
+            burst.Lifetime         = lifetime;
+            burst.OneShot          = true;
+            burst.Explosiveness    = 0.85f;
+            burst.LocalCoords      = false;
+            burst.Emitting         = true;
+            scene.AddChild(burst);
+            burst.GlobalPosition   = pos;
+
+            // Brief point-light flash to illuminate the impact area.
+            float flashEnergy = kind == ProjectileKind.Shell   ? 8f
+                              : kind == ProjectileKind.Rocket  ? 4f
+                              :                                  1.5f;
+            float flashRange  = kind == ProjectileKind.Shell   ? 12f
+                              : kind == ProjectileKind.Rocket  ? 6f
+                              :                                  2f;
+            var flash = new OmniLight3D
+            {
+                LightColor    = new Color(1f, 0.65f, 0.20f),
+                LightEnergy   = flashEnergy,
+                OmniRange     = flashRange,
+                ShadowEnabled = false,
+                LightBake     = Light3D.BakeMode.Disabled,
+            };
+            scene.AddChild(flash);
+            flash.GlobalPosition = pos;
+
+            var flashTimer = GetTree().CreateTimer(0.08);
+            flashTimer.Timeout += flash.QueueFree;
+            var cleanTimer = GetTree().CreateTimer(lifetime + 0.5f);
+            cleanTimer.Timeout += burst.QueueFree;
         }
     }
 }
