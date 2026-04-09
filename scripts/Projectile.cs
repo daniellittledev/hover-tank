@@ -16,6 +16,13 @@ namespace HoverTank
         // and damage. Used on clients for projectiles owned by remote players.
         public bool IsVisualOnly = false;
 
+        // Optional world-space target for guided rockets. When set, the rocket
+        // steers toward this point at MaxTurnRadPerSec. Null = unguided.
+        public Vector3? TargetPosition { get; set; } = null;
+
+        // Maximum turn rate for guided rockets (radians per second).
+        [Export] public float MaxTurnRadPerSec = 1.8f;
+
         private float          _age;
         private bool           _dying;
         private GpuParticles3D _trail = null!;
@@ -155,6 +162,21 @@ namespace HoverTank
             {
                 Die();
                 return;
+            }
+
+            // Guided rocket steering: curve toward TargetPosition at limited turn rate.
+            if (TargetPosition.HasValue && Kind == ProjectileKind.Rocket)
+            {
+                Vector3 toTarget   = (TargetPosition.Value - GlobalPosition).Normalized();
+                Vector3 currentFwd = -GlobalBasis.Z;
+                float   angle      = currentFwd.AngleTo(toTarget);
+                if (angle > 0.001f)
+                {
+                    float   maxAngle = MaxTurnRadPerSec * (float)delta;
+                    float   t        = Mathf.Min(1f, maxAngle / angle);
+                    Vector3 newFwd   = currentFwd.Slerp(toTarget, t).Normalized();
+                    GlobalBasis      = Basis.LookingAt(-newFwd, Vector3.Up);
+                }
             }
 
             Vector3 velocity = -GlobalTransform.Basis.Z * Speed;
