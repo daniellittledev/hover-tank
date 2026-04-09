@@ -1,8 +1,9 @@
 using Godot;
+using System.Collections.Generic;
 
 namespace HoverTank
 {
-    // CanvasLayer overlay: health bar, three-weapon ammo list, crosshair.
+    // CanvasLayer overlay: health bar, three-weapon ammo list, crosshair, radar.
     // Attaches to the first HoverTank that enters the scene tree.
     public partial class HUD : CanvasLayer
     {
@@ -16,6 +17,10 @@ namespace HoverTank
         // Weapon panel refs — one row per weapon (MiniGun/Rocket/Shell)
         private Label[] _weaponNameLabels = null!;
         private Label[] _ammoLabels       = null!;
+
+        // Radar refs
+        private RadarDisplay _radar = null!;
+        private readonly List<Vector3> _enemyPositions = new();
 
         private static readonly string[] WeaponDisplayNames = { "MINIGUN", "ROCKET ", "CANNON " };
 
@@ -53,6 +58,7 @@ namespace HoverTank
             BuildHealthPanel(root);
             BuildWeaponsPanel(root);
             BuildCrosshair(root);
+            BuildRadarPanel(root);
         }
 
         private static StyleBoxFlat PanelStyle() => new StyleBoxFlat
@@ -156,6 +162,33 @@ namespace HoverTank
             root.AddChild(ch);
         }
 
+        private void BuildRadarPanel(Control root)
+        {
+            // Outer panel — top-right corner
+            var panel = new PanelContainer();
+            panel.AddThemeStyleboxOverride("panel", PanelStyle());
+            panel.AnchorLeft   = 1f; panel.OffsetLeft   = -165f;
+            panel.AnchorTop    = 0f; panel.OffsetTop    =  20f;
+            panel.AnchorRight  = 1f; panel.OffsetRight  = -20f;
+            panel.AnchorBottom = 0f; panel.OffsetBottom = 190f;
+            root.AddChild(panel);
+
+            var vbox = new VBoxContainer();
+            vbox.AddThemeConstantOverride("separation", 6);
+            panel.AddChild(vbox);
+
+            var title = new Label { Text = "RADAR", HorizontalAlignment = HorizontalAlignment.Center };
+            title.AddThemeColorOverride("font_color", new Color(0.45f, 0.95f, 0.55f));
+            vbox.AddChild(title);
+
+            _radar = new RadarDisplay
+            {
+                CustomMinimumSize = new Vector2(130f, 130f),
+                MouseFilter       = Control.MouseFilterEnum.Ignore,
+            };
+            vbox.AddChild(_radar);
+        }
+
         // ── Per-frame updates ────────────────────────────────────────────────
         public override void _Process(double delta)
         {
@@ -164,6 +197,7 @@ namespace HoverTank
             UpdateHealth();
             if (_tank.Weapons != null)
                 UpdateWeapons(_tank.Weapons);
+            UpdateRadar();
         }
 
         private void UpdateHealth()
@@ -196,6 +230,17 @@ namespace HoverTank
                 _ammoLabels[i].AddThemeColorOverride("font_color",
                     active ? new Color(1.00f, 1.00f, 1.00f) : new Color(0.50f, 0.50f, 0.50f));
             }
+        }
+
+        private void UpdateRadar()
+        {
+            _enemyPositions.Clear();
+            foreach (var node in GetTree().GetNodesInGroup("hover_tanks"))
+            {
+                if (node is HoverTank t && t.IsEnemy && t.Health > 0f)
+                    _enemyPositions.Add(t.GlobalPosition);
+            }
+            _radar.UpdateData(_tank!.GlobalPosition, _tank.Basis, _enemyPositions);
         }
     }
 }
