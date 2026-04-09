@@ -352,8 +352,7 @@ namespace HoverTank
         [Rpc(MultiplayerApi.RpcMode.AnyPeer,
              TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered)]
         public void SubmitInputRpc(int tick, int sequence, byte flags,
-                                   float throttle, float steer,
-                                   float aimYaw, float aimPitch)
+                                   float throttle, float steer, float aimYaw)
         {
             if (!Multiplayer.IsServer()) return;
             int senderId = Multiplayer.GetRemoteSenderId();
@@ -361,15 +360,14 @@ namespace HoverTank
             {
                 Tick     = tick,
                 Sequence = sequence,
-                Input    = TankInput.FromParts(flags, throttle, steer, aimYaw, aimPitch),
+                Input    = TankInput.FromParts(flags, throttle, steer, aimYaw),
             });
         }
 
         public void SendInput(int tick, int sequence, TankInput input)
         {
             RpcId(1, MethodName.SubmitInputRpc, tick, sequence,
-                  input.PackFlags(), input.Throttle, input.Steer,
-                  input.AimYaw, input.AimPitch);
+                  input.PackFlags(), input.Throttle, input.Steer, input.AimYaw);
         }
 
         // ── Snapshot RPC (server → clients) ──────────────────────────────────

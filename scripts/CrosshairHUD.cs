@@ -10,14 +10,10 @@ namespace HoverTank
     {
         public override void _Ready()
         {
-            // Prevent the Control from eating input events.
             MouseFilter = MouseFilterEnum.Ignore;
-            // Fill the whole viewport so the centre calculation is correct.
             SetAnchorsPreset(LayoutPreset.FullRect);
-        }
-
-        public override void _Process(double delta)
-        {
+            // Redraw once on startup, then again whenever the viewport is resized.
+            GetViewport().SizeChanged += QueueRedraw;
             QueueRedraw();
         }
 
@@ -25,17 +21,14 @@ namespace HoverTank
         {
             Vector2 center = GetViewportRect().Size / 2f;
             var color = new Color(1f, 1f, 1f, 0.85f);
-            const float arm  = 10f;
-            const float gap  = 4f;
+            const float arm   = 10f;
+            const float gap   = 4f;
             const float width = 1.5f;
 
-            // Horizontal bar (gap in the middle)
             DrawLine(center + Vector2.Left  * (arm + gap), center + Vector2.Left  * gap, color, width);
             DrawLine(center + Vector2.Right * gap,         center + Vector2.Right * (arm + gap), color, width);
-            // Vertical bar
-            DrawLine(center + Vector2.Up   * (arm + gap), center + Vector2.Up   * gap, color, width);
-            DrawLine(center + Vector2.Down * gap,         center + Vector2.Down * (arm + gap), color, width);
-            // Centre dot
+            DrawLine(center + Vector2.Up    * (arm + gap), center + Vector2.Up    * gap, color, width);
+            DrawLine(center + Vector2.Down  * gap,         center + Vector2.Down  * (arm + gap), color, width);
             DrawCircle(center, 1.5f, color);
         }
     }
