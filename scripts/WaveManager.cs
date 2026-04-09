@@ -71,8 +71,43 @@ namespace HoverTank
 
             BuildHUD();
 
-            // Defer first wave so terrain physics are fully initialised.
+            // Defer so terrain physics and the player tank are fully initialised.
+            CallDeferred(nameof(SpawnStartingAllies));
             CallDeferred(nameof(StartNextWave));
+        }
+
+        // ── Ally spawning ─────────────────────────────────────────────────────
+
+        private void SpawnStartingAllies()
+        {
+            SpawnAlly(new Vector3(-6f, 5f,  3f));
+            SpawnAlly(new Vector3( 6f, 5f,  3f));
+        }
+
+        private void SpawnAlly(Vector3 position)
+        {
+            var tank = _tankScene.Instantiate<HoverTank>();
+            tank.IsFriendlyAI = true;
+
+            var ai = new AllyAI { Name = "AllyAI" };
+            tank.AddChild(ai);
+
+            _tanksContainer?.AddChild(tank);
+            tank.GlobalPosition = position;
+
+            SetAllyHullColor(tank);
+        }
+
+        private static void SetAllyHullColor(HoverTank tank)
+        {
+            var body = tank.GetNodeOrNull<MeshInstance3D>("Body");
+            if (body == null) return;
+            body.SetSurfaceOverrideMaterial(0, new StandardMaterial3D
+            {
+                AlbedoColor = new Color(0.15f, 0.75f, 0.25f),
+                Roughness   = 0.55f,
+                Metallic    = 0.55f,
+            });
         }
 
         public override void _Process(double delta)
