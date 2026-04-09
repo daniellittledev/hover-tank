@@ -276,6 +276,7 @@ namespace HoverTank
                 if (node is HoverTank tank && !tank.IsEnemy && !tank.IsFriendlyAI)
                     return tank.GlobalPosition;
             }
+            GD.PushWarning("WaveManager: player tank not found; pickups will spawn at origin");
             return Vector3.Zero;
         }
 
@@ -285,11 +286,12 @@ namespace HoverTank
             float dist  = MinPickupDist + GD.Randf() * (MaxPickupDist - MinPickupDist);
             float x     = near.X + Mathf.Sin(angle) * dist;
             float z     = near.Z + Mathf.Cos(angle) * dist;
-            float y     = GetTerrainHeight(x, z) + 1.5f;
+            var spawnPos = new Vector3(x, GetTerrainHeight(x, z) + 1.5f, z);
 
-            var pickup = new Pickup { Type = type };
+            // BasePosition must be set before AddChild so Pickup._Ready captures the correct bob Y.
+            var pickup = new Pickup { Type = type, BasePosition = spawnPos };
             GetTree().CurrentScene.AddChild(pickup);
-            pickup.GlobalPosition = new Vector3(x, y, z);
+            pickup.GlobalPosition = spawnPos;
         }
 
         // ── Terrain height probe ──────────────────────────────────────────────
