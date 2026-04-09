@@ -44,6 +44,9 @@ namespace HoverTank
             public bool Valid;
         }
 
+        // Set by NetworkManager after spawning so aim data flows into CaptureInput.
+        public FollowCamera? Camera { get; set; }
+
         public ClientSimulation(NetworkManager net)
         {
             _net = net;
@@ -124,6 +127,7 @@ namespace HoverTank
                 Steer           = Input.GetAxis("move_right",    "move_left"),
                 JumpJet         = jumpDown,
                 JumpJustPressed = _jumpLatch,
+                AimYaw          = Camera?.CurrentYaw ?? 0f,
             };
         }
 

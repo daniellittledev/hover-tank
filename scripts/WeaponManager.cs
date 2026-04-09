@@ -52,6 +52,14 @@ namespace HoverTank
         private Marker3D _rocketRight  = null!;
         private Marker3D _cannon       = null!;
 
+        // ── Turret reference (set by TurretController on Turret node) ────────
+        private TurretController? _turret;
+
+        // World-space point the crosshair aims at. Set by HoverTank each tick.
+        // Null when no camera is present (server-side, ghost tanks).
+        // Rockets use this as their guided target.
+        public Vector3? AimTarget { get; set; }
+
         public override void _Ready()
         {
             _miniGunLeft  = GetNode<Marker3D>("MiniGunLeft");
@@ -59,6 +67,8 @@ namespace HoverTank
             _rocketLeft   = GetNode<Marker3D>("RocketLeft");
             _rocketRight  = GetNode<Marker3D>("RocketRight");
             _cannon       = GetNode<Marker3D>("Cannon");
+
+            _turret = GetParent().GetNodeOrNull<TurretController>("Turret");
 
             // Cache owner RID so projectiles can exclude the firing tank
             if (GetParent() is RigidBody3D rb)
@@ -92,9 +102,12 @@ namespace HoverTank
 
         private void Fire()
         {
+            Vector3? turretFwd = _turret?.GetAimForward();
+
             switch (CurrentWeapon)
             {
                 case WeaponType.MiniGun:
+                    // Minigun is fixed to the tank body — no turret involvement.
                     if (MiniGunAmmo <= 0) return;
                     SpawnProjectile(_miniGunLeft,  ProjectileKind.Bullet);
                     SpawnProjectile(_miniGunRight, ProjectileKind.Bullet);
@@ -103,41 +116,54 @@ namespace HoverTank
                     break;
 
                 case WeaponType.Rocket:
+                    // Rockets fire along turret aim and curve toward the crosshair target.
                     if (RocketAmmo <= 0) return;
-                    SpawnProjectile(_rocketAlternate ? _rocketRight : _rocketLeft, ProjectileKind.Rocket);
+                    var rocketOrigin = _rocketAlternate ? _rocketRight : _rocketLeft;
+                    SpawnProjectile(rocketOrigin, ProjectileKind.Rocket,
+                                    aimOverride: turretFwd,
+                                    guidedTarget: AimTarget);
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
                     break;
 
                 case WeaponType.TankShell:
+                    // Cannon shell fires along turret aim direction.
                     if (TankShellAmmo <= 0) return;
-                    SpawnProjectile(_cannon, ProjectileKind.Shell);
+                    SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: turretFwd);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
                     break;
             }
         }
 
-        private void SpawnProjectile(Marker3D origin, ProjectileKind kind)
+        private void SpawnProjectile(Marker3D origin, ProjectileKind kind,
+                                      Vector3? aimOverride = null,
+                                      Vector3? guidedTarget = null)
         {
             var (speed, damage, lifetime) = Projectile.GetStats(kind);
             var proj = new Projectile
             {
-                Speed        = speed,
-                Damage       = damage,
-                Lifetime     = lifetime,
-                Kind         = kind,
-                OwnerRid     = _ownerRid,
+                Speed          = speed,
+                Damage         = damage,
+                Lifetime       = lifetime,
+                Kind           = kind,
+                OwnerRid       = _ownerRid,
                 // In LocalPrediction mode the server owns damage; spawn visuals only.
-                IsVisualOnly = FireMode == WeaponFireMode.LocalPrediction,
+                IsVisualOnly   = FireMode == WeaponFireMode.LocalPrediction,
+                TargetPosition = guidedTarget,
             };
             // Add to scene root so the projectile is independent of the tank
             GetTree().CurrentScene.AddChild(proj);
             proj.GlobalTransform = origin.GlobalTransform;
 
+            // Override aim direction for turret-aimed weapons (cannon, rockets).
+            // Basis.LookingAt(dir) makes the -Z axis (projectile forward) point toward dir.
+            if (aimOverride.HasValue && !aimOverride.Value.IsZeroApprox())
+                proj.GlobalBasis = Basis.LookingAt(aimOverride.Value.Normalized(), Vector3.Up);
+
             // Notify NetworkManager so it can relay the shot over the network.
-            Fired?.Invoke(kind, origin.GlobalTransform);
+            Fired?.Invoke(kind, proj.GlobalTransform);
         }
 
         // Returns (current, max) ammo for a given weapon type.

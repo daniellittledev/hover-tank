@@ -63,7 +63,12 @@ namespace HoverTank
             tank.GlobalPosition = new Vector3(0f, 5f, 0f);
             _tanksRoot.AddChild(tank);
 
-            var handler = new LocalInputHandler { Target = tank, PlayerIndex = 0 };
+            var handler = new LocalInputHandler
+            {
+                Target      = tank,
+                PlayerIndex = 0,
+                Camera      = tank.AimCamera,
+            };
             tank.AddChild(handler);
         }
 
@@ -195,6 +200,7 @@ namespace HoverTank
                     tank.GlobalPosition = new Vector3(0f, 5f, 0f);
                     _tanksRoot.AddChild(tank);
                     _client!.SetLocalTank(tank);
+                    _client.Camera = tank.AimCamera;
 
                     if (tank.Weapons != null)
                     {
@@ -345,7 +351,8 @@ namespace HoverTank
 
         [Rpc(MultiplayerApi.RpcMode.AnyPeer,
              TransferMode = MultiplayerPeer.TransferModeEnum.UnreliableOrdered)]
-        public void SubmitInputRpc(int tick, int sequence, byte flags, float throttle, float steer)
+        public void SubmitInputRpc(int tick, int sequence, byte flags,
+                                   float throttle, float steer, float aimYaw)
         {
             if (!Multiplayer.IsServer()) return;
             int senderId = Multiplayer.GetRemoteSenderId();
@@ -353,14 +360,14 @@ namespace HoverTank
             {
                 Tick     = tick,
                 Sequence = sequence,
-                Input    = TankInput.FromParts(flags, throttle, steer),
+                Input    = TankInput.FromParts(flags, throttle, steer, aimYaw),
             });
         }
 
         public void SendInput(int tick, int sequence, TankInput input)
         {
             RpcId(1, MethodName.SubmitInputRpc, tick, sequence,
-                  input.PackFlags(), input.Throttle, input.Steer);
+                  input.PackFlags(), input.Throttle, input.Steer, input.AimYaw);
         }
 
         // ── Snapshot RPC (server → clients) ──────────────────────────────────
