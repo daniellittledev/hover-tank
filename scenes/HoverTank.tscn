@@ -1,9 +1,11 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/HoverTank.cs" id="1_tank"]
 [ext_resource type="Script" path="res://scripts/FollowCamera.cs" id="2_cam"]
 [ext_resource type="Script" path="res://scripts/TankMeshBuilder.cs" id="3_mesh"]
 [ext_resource type="Script" path="res://scripts/WeaponManager.cs" id="4_weapons"]
+[ext_resource type="Script" path="res://scripts/TurretController.cs" id="5_turret"]
+[ext_resource type="Script" path="res://scripts/CrosshairHUD.cs" id="6_hud"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hull"]
 size = Vector3(1.85, 0.32, 3.0)
@@ -58,8 +60,11 @@ can_sleep = false
 script = ExtResource("3_mesh")
 surface_material_override/0 = SubResource("Mat_hull")
 
-[node name="Turret" type="MeshInstance3D" parent="."]
+[node name="Turret" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.27, -0.2)
+script = ExtResource("5_turret")
+
+[node name="TurretMesh" type="MeshInstance3D" parent="Turret"]
 mesh = SubResource("BoxMesh_turret")
 surface_material_override/0 = SubResource("Mat_turret")
 
@@ -185,3 +190,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.0, 0.15, -0.2)
 
 [node name="Cannon" type="Marker3D" parent="WeaponManager"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.27, -1.6)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Crosshair" type="Control" parent="HUD"]
+script = ExtResource("6_hud")

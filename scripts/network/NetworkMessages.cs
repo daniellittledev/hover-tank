@@ -15,6 +15,10 @@ namespace HoverTank.Network
         public float Steer;
         public bool JumpJet;
         public bool JumpJustPressed;
+        // World-space camera yaw (radians). Used for auto-steer and turret rotation.
+        public float AimYaw;
+        // Camera pitch (radians). Used for barrel elevation.
+        public float AimPitch;
 
         public static readonly TankInput Empty = default;
 
@@ -27,12 +31,15 @@ namespace HoverTank.Network
             return b;
         }
 
-        public static TankInput FromParts(byte flags, float throttle, float steer) => new TankInput
+        public static TankInput FromParts(byte flags, float throttle, float steer,
+                                          float aimYaw = 0f, float aimPitch = 0f) => new TankInput
         {
             Throttle        = throttle,
             Steer           = steer,
             JumpJet         = (flags & (1 << 0)) != 0,
             JumpJustPressed = (flags & (1 << 1)) != 0,
+            AimYaw          = aimYaw,
+            AimPitch        = aimPitch,
         };
     }
 

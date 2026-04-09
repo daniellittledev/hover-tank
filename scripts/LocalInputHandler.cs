@@ -11,8 +11,10 @@ namespace HoverTank
     //   PlayerIndex 1  →  P2 actions: p2_move_forward / … (arrow keys etc.)
     public partial class LocalInputHandler : Node
     {
-        public HoverTank? Target      { get; set; }
-        public int        PlayerIndex { get; set; } = 0;
+        public HoverTank?    Target      { get; set; }
+        public int           PlayerIndex { get; set; } = 0;
+        // Set by NetworkManager after the tank and camera are spawned.
+        public FollowCamera? Camera      { get; set; }
 
         private string Pfx => PlayerIndex == 0 ? "" : "p2_";
 
@@ -31,6 +33,8 @@ namespace HoverTank
                 Steer           = Input.GetAxis(Pfx + "move_right",    Pfx + "move_left"),
                 JumpJet         = Input.IsActionPressed(Pfx + "jump_jet"),
                 JumpJustPressed = _jumpLatch,
+                AimYaw          = Camera?.CurrentYaw   ?? 0f,
+                AimPitch        = Camera?.CurrentPitch ?? 0f,
             };
 
             Target.SetInput(input);
