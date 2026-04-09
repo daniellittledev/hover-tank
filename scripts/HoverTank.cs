@@ -43,8 +43,18 @@ namespace HoverTank
         public void TakeDamage(float amount) =>
             Health = Mathf.Max(0f, Health - amount);
 
+        // ── Auto-steer (Halo-style) ──────────────────────────────────────────
+        // Proportional gain: torque per radian of yaw error.
+        [Export] public float AutoSteerGain = 120f;
+        // Derivative gain: damps yaw oscillation.
+        [Export] public float AutoSteerDamp = 20f;
+
         // ── Weapons ──────────────────────────────────────────────────────────
         public WeaponManager? Weapons { get; private set; }
+
+        // ── Camera + turret ──────────────────────────────────────────────────
+        public FollowCamera?    AimCamera { get; private set; }
+        private TurretController? _turret;
 
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
@@ -66,7 +76,9 @@ namespace HoverTank
                 GetNode<RayCast3D>("HoverRayBR"),
             };
 
-            Weapons = GetNodeOrNull<WeaponManager>("WeaponManager");
+            Weapons   = GetNodeOrNull<WeaponManager>("WeaponManager");
+            AimCamera = GetNodeOrNull<FollowCamera>("CameraMount/Camera");
+            _turret   = GetNodeOrNull<TurretController>("Turret");
 
             // Register so the HUD can find this tank by group
             AddToGroup("hover_tanks");
@@ -80,6 +92,17 @@ namespace HoverTank
             ProcessHoverForces();
             ProcessMovement(_currentInput);
             ProcessJumpJets(_currentInput);
+
+            // Drive turret toward camera aim direction.
+            if (_turret != null && AimCamera != null)
+            {
+                _turret.TargetAimYaw   = AimCamera.CurrentYaw;
+                _turret.TargetAimPitch = AimCamera.CurrentPitch;
+            }
+
+            // Feed aim target to weapons so rockets know where to curve.
+            if (Weapons != null && AimCamera != null)
+                Weapons.AimTarget = AimCamera.AimTarget;
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -140,8 +163,23 @@ namespace HoverTank
                     ApplyCentralForce(thrustDir * ThrustForce * Mathf.Abs(input.Throttle));
             }
 
-            if (input.Steer != 0f)
-                ApplyTorque(Vector3.Up * TurnTorque * input.Steer);
+            // ── Halo-style auto-steer: PD controller toward camera yaw ───────
+            // Tank's current world-space yaw (heading of its -Z axis on the XZ plane).
+            float tankYaw  = Mathf.Atan2(-Basis.Z.X, -Basis.Z.Z);
+            float yawError = AngleDiff(input.AimYaw, tankYaw);
+            float yawRate  = AngularVelocity.Y;
+
+            float autoTorque   = AutoSteerGain * yawError - AutoSteerDamp * yawRate;
+            // A/D keys add a steering bias on top of auto-steer (fine-grained swerve).
+            float manualTorque = TurnTorque * input.Steer;
+            ApplyTorque(Vector3.Up * (autoTorque + manualTorque));
+        }
+
+        // Returns the shortest signed angle from 'from' to 'to', range [-π, π].
+        private static float AngleDiff(float to, float from)
+        {
+            float d = (to - from + Mathf.Pi * 3f) % (Mathf.Pi * 2f) - Mathf.Pi;
+            return d;
         }
 
         // ────────────────────────────────────────────────────────────────────
