@@ -10,6 +10,11 @@ namespace HoverTank
     /// Exposes CurrentYaw, CurrentPitch, and AimTarget so LocalInputHandler and
     /// WeaponManager can read the aiming state.
     ///
+    /// Yaw convention: CurrentYaw=0 places the camera at +Z from the orbit
+    /// centre, which is directly behind a tank whose forward axis is -Z. This
+    /// convention is shared by HoverTank.ProcessMovement and TurretController
+    /// so that AimYaw==tankYaw produces zero auto-steer torque.
+    ///
     /// Attach to the Camera3D child of CameraMount inside HoverTank.tscn.
     /// </summary>
     public partial class FollowCamera : Camera3D
@@ -23,49 +28,73 @@ namespace HoverTank
         // How fast camera position spring-follows the tank (per second).
         [Export] public float PositionLag = 6.0f;
 
-        // Mouse / right-stick sensitivity (radians per pixel / per unit).
+        // Mouse sensitivity (radians per pixel).
         [Export] public float MouseSensitivity = 0.003f;
+
+        // Right-stick sensitivity (radians per second at full deflection).
+        [Export] public float StickSensitivity = 2.5f;
 
         // Pitch limits (radians). Negative = look up, positive = look down.
         [Export] public float PitchMin = -0.26f;  // ~-15°
         [Export] public float PitchMax =  0.61f;  //  ~35°
 
-        // World-space camera yaw (radians). Read by LocalInputHandler → TankInput.
+        // NodePath to the owning tank. Default works for Camera→CameraMount→HoverTank
+        // but can be overridden in the Inspector if the hierarchy changes.
+        [Export] NodePath _tankPath = "../..";
+
+        // World-space camera yaw. Convention: 0 = camera at +Z from orbit centre
+        // (behind a default -Z-facing tank). Read by LocalInputHandler → TankInput.
         public float CurrentYaw   { get; private set; }
-        // Camera pitch (radians). Read by LocalInputHandler → TankInput.
+        // Camera pitch (radians). Read by TurretController for barrel elevation.
         public float CurrentPitch { get; private set; }
-        // World-space point the camera crosshair hits. Read by WeaponManager for rockets.
+        // World-space point the crosshair hits. Read by WeaponManager for rockets.
         public Vector3 AimTarget  { get; private set; }
 
         private HoverTank? _tank;
         private Vector3 _smoothOrbitCenter;
-        private bool _initialised;
+
+        // Cached to avoid per-frame allocation in UpdateAimTarget.
+        private readonly Godot.Collections.Array<Rid> _excludeRids = new();
 
         public override void _Ready()
         {
-            // Camera3D is: Camera → CameraMount → HoverTank
-            _tank = GetParent().GetParent<HoverTank>();
-
-            // Initialise yaw to match the tank's current facing so there's no snap.
+            _tank = GetNodeOrNull<HoverTank>(_tankPath);
             if (_tank != null)
             {
-                CurrentYaw   = Mathf.Atan2(-_tank.Basis.Z.X, -_tank.Basis.Z.Z);
+                // Initialise yaw so the camera starts directly behind the tank
+                // with no auto-steer torque on the first frame.
+                // Convention: yaw = Atan2(Basis.Z.X, Basis.Z.Z) (backward direction).
+                CurrentYaw   = Mathf.Atan2(_tank.Basis.Z.X, _tank.Basis.Z.Z);
                 CurrentPitch = 0.40f; // ~23° downward — matches old CameraMount tilt
                 _smoothOrbitCenter = _tank.GlobalPosition + Vector3.Up * OrbitCenterHeight;
+                _excludeRids.Add(_tank.GetRid());
             }
 
-            _initialised = false;
-
-            // Capture mouse so it doesn't leave the window while driving.
-            Input.MouseMode = Input.MouseModeEnum.Captured;
+            // Only the active (non-ghost) camera captures the mouse.
+            if (Current)
+                Input.MouseMode = Input.MouseModeEnum.Captured;
 
             SetPhysicsProcess(false);
             SetProcess(true);
         }
 
-        // Accumulate mouse motion events for smooth look.
         public override void _Input(InputEvent @event)
         {
+            if (!Current) return;
+
+            // Escape toggles mouse capture so the player can reach the OS.
+            if (@event is InputEventKey key && key.Keycode == Key.Escape
+                                            && key.Pressed && !key.Echo)
+            {
+                Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured
+                    ? Input.MouseModeEnum.Visible
+                    : Input.MouseModeEnum.Captured;
+                return;
+            }
+
+            // Only accumulate mouse look when the cursor is captured.
+            if (Input.MouseMode != Input.MouseModeEnum.Captured) return;
+
             if (@event is InputEventMouseMotion motion)
             {
                 CurrentYaw   -= motion.Relative.X * MouseSensitivity;
@@ -76,62 +105,51 @@ namespace HoverTank
 
         public override void _Process(double delta)
         {
-            if (_tank == null) return;
+            // Skip processing for non-active (ghost) cameras entirely.
+            if (!Current || _tank == null) return;
+
             float dt = (float)delta;
 
-            // Right analog stick also drives camera look (gamepad support).
-            float stickX = Input.GetAxis("look_left",  "look_right");
-            float stickY = Input.GetAxis("look_up",    "look_down");
-            float stickSens = MouseSensitivity * 200f * dt;
-            CurrentYaw   -= stickX * stickSens;
-            CurrentPitch += stickY * stickSens;
-            CurrentPitch  = Mathf.Clamp(CurrentPitch, PitchMin, PitchMax);
+            // Right analog stick — only when mouse is captured (game is focused).
+            if (Input.MouseMode == Input.MouseModeEnum.Captured)
+            {
+                CurrentYaw   -= Input.GetAxis("look_left",  "look_right") * StickSensitivity * dt;
+                CurrentPitch += Input.GetAxis("look_up",    "look_down")  * StickSensitivity * dt;
+                CurrentPitch  = Mathf.Clamp(CurrentPitch, PitchMin, PitchMax);
+            }
 
             // Spring-follow the orbit centre so sudden tank jolts don't snap the camera.
             Vector3 targetCenter = _tank.GlobalPosition + Vector3.Up * OrbitCenterHeight;
-            if (!_initialised)
-            {
-                _smoothOrbitCenter = targetCenter;
-                _initialised = true;
-            }
-            else
-            {
-                _smoothOrbitCenter = _smoothOrbitCenter.Lerp(targetCenter, PositionLag * dt);
-            }
+            _smoothOrbitCenter = _smoothOrbitCenter.Lerp(targetCenter, PositionLag * dt);
 
             // Compute camera position from yaw + pitch orbit.
-            //   yaw=0, pitch=0 → camera sits directly behind the tank on the +Z axis.
+            // At CurrentYaw=0, pitch=0 the camera sits at (0, 0, +OrbitRadius) from the
+            // orbit centre — directly behind a tank whose -Z axis is forward.
             float cosP = Mathf.Cos(CurrentPitch);
             float sinP = Mathf.Sin(CurrentPitch);
             float cosY = Mathf.Cos(CurrentYaw);
             float sinY = Mathf.Sin(CurrentYaw);
 
-            // Orbit offset in world space: yaw rotates around Y, pitch tilts up/down.
-            var offset = new Vector3(
-                 sinY * cosP,
-                 sinP,
-                 cosY * cosP
-            ) * OrbitRadius;
+            var offset = new Vector3(sinY * cosP, sinP, cosY * cosP) * OrbitRadius;
 
             GlobalPosition = _smoothOrbitCenter + offset;
             LookAt(_smoothOrbitCenter, Vector3.Up);
 
             // Raycast from camera through screen centre to find AimTarget.
+            // NOTE: DirectSpaceState queries from _Process are safe with Godot's
+            // default single-threaded physics. If multithreaded physics is ever
+            // enabled this should move to _PhysicsProcess.
             UpdateAimTarget();
         }
 
         private void UpdateAimTarget()
         {
-            // Forward direction is the camera's -Z in world space.
             Vector3 rayOrigin = GlobalPosition;
-            Vector3 rayDir    = -GlobalBasis.Z;
-            Vector3 rayEnd    = rayOrigin + rayDir * 500f;
+            Vector3 rayEnd    = rayOrigin + (-GlobalBasis.Z) * 500f;
 
             var space = GetWorld3D().DirectSpaceState;
             var query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayEnd);
-            // Exclude the tank itself so we don't hit our own collider.
-            if (_tank != null)
-                query.Exclude = new Godot.Collections.Array<Rid> { _tank.GetRid() };
+            query.Exclude = _excludeRids;
 
             var hit = space.IntersectRay(query);
             AimTarget = hit.Count > 0
