@@ -26,9 +26,14 @@ namespace HoverTank
         private float          _age;
         private bool           _dying;
         private GpuParticles3D _trail = null!;
+        // Cached to avoid per-frame allocation in _PhysicsProcess.
+        private Godot.Collections.Array<Rid> _excludeRids = null!;
 
         public override void _Ready()
         {
+            _excludeRids = new Godot.Collections.Array<Rid>();
+            if (OwnerRid != default)
+                _excludeRids.Add(OwnerRid);
             BuildMesh();
             BuildTrail();
         }
@@ -199,8 +204,7 @@ namespace HoverTank
 
                 var space = GetWorld3D().DirectSpaceState;
                 var query = PhysicsRayQueryParameters3D.Create(from, to);
-                if (OwnerRid != default)
-                    query.Exclude = new Godot.Collections.Array<Rid> { OwnerRid };
+                query.Exclude = _excludeRids;
 
                 var hit = space.IntersectRay(query);
                 if (hit.Count > 0)

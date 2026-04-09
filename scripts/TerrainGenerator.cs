@@ -173,23 +173,34 @@ namespace HoverTank
         {
             var rng = new Random(NoiseSeed + 1);
 
+            // Pre-compute world X and Z coordinates for each grid index once,
+            // rather than recomputing inside every crater × vertex iteration.
+            var worldCoords = new float[verts];
+            for (int i = 0; i < verts; i++)
+                worldCoords[i] = i * CellSize - origin;
+
             for (int c = 0; c < CraterCount; c++)
             {
-                float cx = (float)(rng.NextDouble() * GridSize * CellSize) - origin;
-                float cz = (float)(rng.NextDouble() * GridSize * CellSize) - origin;
+                float cx     = (float)(rng.NextDouble() * GridSize * CellSize) - origin;
+                float cz     = (float)(rng.NextDouble() * GridSize * CellSize) - origin;
                 float radius = CraterRadiusMin + (float)(rng.NextDouble() * (CraterRadiusMax - CraterRadiusMin));
+                float radiusSq = radius * radius;
 
                 for (int z = 0; z < verts; z++)
                 {
+                    float dzVal = worldCoords[z] - cz;
+                    float dzSq  = dzVal * dzVal;
+
                     for (int x = 0; x < verts; x++)
                     {
-                        float wx = x * CellSize - origin;
-                        float wz = z * CellSize - origin;
-                        float dist = MathF.Sqrt((wx - cx) * (wx - cx) + (wz - cz) * (wz - cz));
+                        float dxVal  = worldCoords[x] - cx;
+                        float distSq = dxVal * dxVal + dzSq;
 
-                        if (dist >= radius) continue;
+                        // Skip sqrt for vertices outside the crater radius.
+                        if (distSq >= radiusSq) continue;
 
-                        float t = dist / radius;
+                        float dist = MathF.Sqrt(distSq);
+                        float t    = dist / radius;
                         float bowl = CraterDepth * (1f - t * t);
                         float rim  = CraterDepth * 0.3f * MathF.Exp(-20f * (t - 0.9f) * (t - 0.9f));
 
@@ -243,15 +254,18 @@ namespace HoverTank
             // Normals via cross product of adjacent edges
             for (int z = 0; z < verts; z++)
             {
+                int zRow     = z * verts;
+                int zRowNext = Math.Min(z + 1, GridSize) * verts;
+                int zRowPrev = Math.Max(z - 1, 0) * verts;
+
                 for (int x = 0; x < verts; x++)
                 {
-                    int i = z * verts + x;
                     // Sample neighbours, clamped to grid bounds
-                    Vector3 dx = positions[z * verts + Math.Min(x + 1, GridSize)]
-                                - positions[z * verts + Math.Max(x - 1, 0)];
-                    Vector3 dz = positions[Math.Min(z + 1, GridSize) * verts + x]
-                                - positions[Math.Max(z - 1, 0) * verts + x];
-                    normals[i] = dz.Cross(dx).Normalized();
+                    Vector3 dx = positions[zRow + Math.Min(x + 1, GridSize)]
+                                - positions[zRow + Math.Max(x - 1, 0)];
+                    Vector3 dz = positions[zRowNext + x]
+                                - positions[zRowPrev + x];
+                    normals[zRow + x] = dz.Cross(dx).Normalized();
                 }
             }
 

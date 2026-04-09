@@ -53,8 +53,9 @@ namespace HoverTank
         private HoverTank? _tank;
         private Vector3 _smoothOrbitCenter;
 
-        // Cached to avoid per-frame allocation in UpdateAimTarget.
+        // Cached to avoid per-frame allocations in UpdateAimTarget.
         private readonly Godot.Collections.Array<Rid> _excludeRids = new();
+        private PhysicsRayQueryParameters3D _aimQuery = null!;
 
         public override void _Ready()
         {
@@ -69,6 +70,10 @@ namespace HoverTank
                 _smoothOrbitCenter = _tank.GlobalPosition + Vector3.Up * OrbitCenterHeight;
                 _excludeRids.Add(_tank.GetRid());
             }
+
+            // Pre-allocate aim raycast query; From/To are updated each frame.
+            _aimQuery = PhysicsRayQueryParameters3D.Create(GlobalPosition, GlobalPosition + Vector3.Forward * 500f);
+            _aimQuery.Exclude = _excludeRids;
 
             // Only the active (non-ghost) camera captures the mouse.
             if (Current)
@@ -147,11 +152,10 @@ namespace HoverTank
             Vector3 rayOrigin = GlobalPosition;
             Vector3 rayEnd    = rayOrigin + (-GlobalBasis.Z) * 500f;
 
-            var space = GetWorld3D().DirectSpaceState;
-            var query = PhysicsRayQueryParameters3D.Create(rayOrigin, rayEnd);
-            query.Exclude = _excludeRids;
+            _aimQuery.From = rayOrigin;
+            _aimQuery.To   = rayEnd;
 
-            var hit = space.IntersectRay(query);
+            var hit = GetWorld3D().DirectSpaceState.IntersectRay(_aimQuery);
             AimTarget = hit.Count > 0
                 ? hit["position"].As<Vector3>()
                 : rayEnd;
