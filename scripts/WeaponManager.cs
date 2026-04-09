@@ -60,6 +60,18 @@ namespace HoverTank
         // Rockets use this as their guided target.
         public Vector3? AimTarget { get; set; }
 
+        // ── AI fire control ──────────────────────────────────────────────────
+        // EnemyAI sets this to true each frame it wants to fire.
+        // WeaponManager fires (respecting cooldown) then clears the flag.
+        public bool AIFireRequested { get; set; }
+
+        // Directly selects a weapon and resets cooldown (used by EnemyAI on spawn).
+        public void SelectWeapon(WeaponType weapon)
+        {
+            CurrentWeapon = weapon;
+            _cooldown = 0f;
+        }
+
         public override void _Ready()
         {
             _miniGunLeft  = GetNode<Marker3D>("MiniGunLeft");
@@ -92,6 +104,13 @@ namespace HoverTank
 
             if (trigger && _cooldown <= 0f)
                 Fire();
+
+            // AI fire request — checked after player input so cooldown applies equally.
+            if (AIFireRequested)
+            {
+                if (_cooldown <= 0f) Fire();
+                AIFireRequested = false;
+            }
         }
 
         private void CycleWeapon(int dir)
