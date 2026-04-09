@@ -57,6 +57,7 @@ namespace HoverTank
             if (Health == 0f)
             {
                 _died = true;
+                AudioManager.Instance?.PlayExplosion(GlobalPosition);
                 EmitSignal(SignalName.Died);
             }
         }
@@ -77,6 +78,7 @@ namespace HoverTank
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
+        private AudioStreamPlayer3D? _enginePlayer;
 
         public override void _Ready()
         {
@@ -103,6 +105,14 @@ namespace HoverTank
 
             // Register so the HUD and AI can find tanks by group
             AddToGroup("hover_tanks");
+
+            // Attach a looping engine-hum player. Works for both player and enemy
+            // tanks — 3D attenuation handles distance falloff for enemy units.
+            if (AudioManager.Instance != null)
+            {
+                _enginePlayer = AudioManager.Instance.CreateEnginePlayer();
+                AddChild(_enginePlayer);
+            }
         }
 
         // Called by ClientSimulation or ServerSimulation before each physics tick.
@@ -125,6 +135,24 @@ namespace HoverTank
             // Null when no camera exists (server-side tanks, bots).
             if (Weapons != null)
                 Weapons.AimTarget = AimCamera?.AimTarget;
+
+            UpdateEngineAudio();
+        }
+
+        // Modulates the engine hum pitch and volume to match throttle + jump state.
+        // Lerp factor 0.08 at 60 Hz gives a ~0.18 s response time.
+        private void UpdateEngineAudio()
+        {
+            if (_enginePlayer == null) return;
+
+            float throttle = Mathf.Abs(_currentInput.Throttle);
+            bool  jumping  = _currentInput.JumpJet;
+
+            float targetPitch = jumping ? 1.55f : 0.75f + 0.55f * throttle; // 0.75–1.30 idle→full
+            float targetVol   = jumping ? -4f   : -14f  + 8f   * throttle;  // -14–-6 dB
+
+            _enginePlayer.PitchScale = Mathf.Lerp(_enginePlayer.PitchScale, targetPitch, 0.08f);
+            _enginePlayer.VolumeDb   = Mathf.Lerp(_enginePlayer.VolumeDb,   targetVol,   0.08f);
         }
 
         // ────────────────────────────────────────────────────────────────────
