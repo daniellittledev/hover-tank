@@ -5,10 +5,13 @@ namespace HoverTank
 {
     public partial class HoverTank : RigidBody3D
     {
-        // ── Enemy flag ───────────────────────────────────────────────────────
+        // ── Team flags ───────────────────────────────────────────────────────
         // Set to true before AddChild to configure this tank as an AI enemy:
         // disables the player camera and suppresses camera-driven turret aim.
         [Export] public bool IsEnemy = false;
+        // Set to true before AddChild for a player-allied AI tank (controlled
+        // by AllyAI + UnitCommander). Like IsEnemy, disables the player camera.
+        [Export] public bool IsFriendlyAI = false;
 
         // Emitted once when Health first reaches zero.
         [Signal] public delegate void DiedEventHandler();
@@ -94,9 +97,8 @@ namespace HoverTank
             AimCamera = GetNodeOrNull<FollowCamera>("CameraMount/Camera");
             _turret   = GetNodeOrNull<TurretController>("Turret");
 
-            // Enemy tanks don't use a player camera — free it to avoid viewport
-            // conflicts and null out AimCamera so the turret is AI-driven.
-            if (IsEnemy)
+            // AI-driven tanks (enemy or friendly) don't need the player camera.
+            if (IsEnemy || IsFriendlyAI)
             {
                 var camMount = GetNodeOrNull("CameraMount");
                 camMount?.QueueFree();
@@ -105,6 +107,8 @@ namespace HoverTank
 
             // Register so the HUD and AI can find tanks by group
             AddToGroup("hover_tanks");
+            if (IsFriendlyAI)
+                AddToGroup("ally_tanks");
 
             // Attach a looping engine-hum player. Works for both player and enemy
             // tanks — 3D attenuation handles distance falloff for enemy units.

@@ -71,7 +71,7 @@ namespace HoverTank
         {
             foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
             {
-                if (node is HoverTank tank && !tank.IsEnemy && tank.Health > 0f)
+                if (node is HoverTank tank && !tank.IsEnemy && !tank.IsFriendlyAI && tank.Health > 0f)
                     return tank;
             }
             return null;
