@@ -116,9 +116,11 @@ namespace HoverTank
                 float equilibriumCompression = rayLength - HoverHeight;
                 float displacement = compression - equilibriumCompression;
 
-                // Point velocity at the ray origin (rigid body kinematics)
+                // Point velocity at the ray origin (rigid body kinematics).
+                // Only the Y component is needed (dotting with Vector3.Up), so
+                // compute it directly instead of constructing intermediate vectors.
                 Vector3 r = ray.GlobalPosition - GlobalPosition;
-                float vertVelocity = (LinearVelocity + AngularVelocity.Cross(r)).Dot(Vector3.Up);
+                float vertVelocity = LinearVelocity.Y + AngularVelocity.Z * r.X - AngularVelocity.X * r.Z;
 
                 float force = SpringStrength * displacement - SpringDamping * vertVelocity;
                 if (force < 0f) force = 0f;
