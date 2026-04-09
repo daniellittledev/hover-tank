@@ -126,6 +126,7 @@ common/physics_ticks_per_second=60
 
 GameState="*res://scripts/GameState.cs"
 NetworkManager="*res://scripts/network/NetworkManager.cs"
+AudioManager="*res://scripts/AudioManager.cs"
 
 [rendering]
 
