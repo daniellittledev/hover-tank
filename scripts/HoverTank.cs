@@ -57,12 +57,104 @@ namespace HoverTank
         {
             if (_died) return;
             Health = Mathf.Max(0f, Health - amount);
+
+            // Shake the player camera proportionally to incoming damage.
+            // Bullet (5 dmg) → ~0.012 m, Rocket (50) → 0.125 m, Shell (100) → 0.25 m.
+            AimCamera?.AddShake(Mathf.Clamp(amount * 0.0025f, 0.01f, 0.25f));
+
             if (Health == 0f)
             {
                 _died = true;
                 AudioManager.Instance?.PlayExplosion(GlobalPosition);
+                SpawnDestructionEffect();
                 EmitSignal(SignalName.Died);
             }
+        }
+
+        private void SpawnDestructionEffect()
+        {
+            var scene = GetTree().CurrentScene;
+
+            // ── Large one-shot debris burst ───────────────────────────────────
+            var burst = new GpuParticles3D();
+            var bmat = new ParticleProcessMaterial
+            {
+                Direction          = Vector3.Up,
+                Spread             = 180f,
+                InitialVelocityMin = 6f,
+                InitialVelocityMax = 25f,
+                Gravity            = new Vector3(0f, -6f, 0f),
+                ScaleMin           = 0.15f,
+                ScaleMax           = 0.60f,
+            };
+            var bgrad = new Gradient();
+            bgrad.SetColor(0, new Color(1f, 0.50f, 0.05f, 1.0f));
+            bgrad.SetColor(1, new Color(0.1f, 0.10f, 0.10f, 0.0f));
+            bmat.ColorRamp      = new GradientTexture1D { Gradient = bgrad };
+            burst.ProcessMaterial = bmat;
+            burst.Amount          = 80;
+            burst.Lifetime        = 1.5;
+            burst.OneShot         = true;
+            burst.Explosiveness   = 0.9f;
+            burst.LocalCoords     = false;
+            burst.Emitting        = true;
+            scene.AddChild(burst);
+            burst.GlobalPosition  = GlobalPosition;
+
+            // ── Lingering smoke column ────────────────────────────────────────
+            var smoke = new GpuParticles3D();
+            var smat = new ParticleProcessMaterial
+            {
+                Direction          = Vector3.Up,
+                Spread             = 30f,
+                InitialVelocityMin = 1f,
+                InitialVelocityMax = 4f,
+                Gravity            = new Vector3(0f, 0.8f, 0f),
+                ScaleMin           = 0.30f,
+                ScaleMax           = 0.90f,
+            };
+            var sgrad = new Gradient();
+            sgrad.SetColor(0, new Color(0.20f, 0.20f, 0.20f, 0.70f));
+            sgrad.SetColor(1, new Color(0.40f, 0.40f, 0.40f, 0.00f));
+            smat.ColorRamp       = new GradientTexture1D { Gradient = sgrad };
+            smoke.ProcessMaterial  = smat;
+            smoke.Amount           = 25;
+            smoke.Lifetime         = 3.0;
+            smoke.LocalCoords      = false;
+            smoke.Emitting         = true;
+            scene.AddChild(smoke);
+            smoke.GlobalPosition   = GlobalPosition + Vector3.Up * 0.5f;
+
+            // ── Bright flash light ────────────────────────────────────────────
+            var flash = new OmniLight3D
+            {
+                LightColor    = new Color(1f, 0.65f, 0.20f),
+                LightEnergy   = 20f,
+                OmniRange     = 18f,
+                ShadowEnabled = false,
+                LightBake     = Light3D.BakeMode.Disabled,
+            };
+            scene.AddChild(flash);
+            flash.GlobalPosition = GlobalPosition;
+
+            // Cleanup timers
+            var flashTimer = GetTree().CreateTimer(0.15);
+            flashTimer.Timeout += flash.QueueFree;
+            var burstTimer = GetTree().CreateTimer(3.5);
+            burstTimer.Timeout += burst.QueueFree;
+            // Stop smoke after 6 s, let particles finish their own lifetime
+            var smokeStop  = GetTree().CreateTimer(6.0);
+            smokeStop.Timeout  += () => smoke.Emitting = false;
+            var smokeClean = GetTree().CreateTimer(10.0);
+            smokeClean.Timeout += smoke.QueueFree;
+
+            // ── Physics: throw the tank body upward and spin it ───────────────
+            ApplyCentralImpulse(Vector3.Up * 12f + new Vector3(
+                (float)GD.RandRange(-2.0, 2.0), 0f, (float)GD.RandRange(-2.0, 2.0)));
+            ApplyTorqueImpulse(new Vector3(
+                (float)GD.RandRange(-15.0, 15.0),
+                (float)GD.RandRange(-15.0, 15.0),
+                (float)GD.RandRange(-15.0, 15.0)));
         }
 
         // ── Auto-steer (Halo-style) ──────────────────────────────────────────

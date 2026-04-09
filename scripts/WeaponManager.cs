@@ -52,6 +52,25 @@ namespace HoverTank
         private Marker3D _rocketRight  = null!;
         private Marker3D _cannon       = null!;
 
+        // ── Muzzle flash lights (created in _Ready, attached to fire points) ─
+        private OmniLight3D _cannonFlashLight   = null!;
+        private OmniLight3D _rocketFlashLLight  = null!;
+        private OmniLight3D _rocketFlashRLight  = null!;
+        private OmniLight3D _miniFlashLLight    = null!;
+        private OmniLight3D _miniFlashRLight    = null!;
+
+        // Countdown timers for each flash group (seconds remaining at peak energy).
+        private float _cannonFlashTimer;
+        private float _rocketFlashLTimer;
+        private float _rocketFlashRTimer;
+        private float _miniFlashTimer;
+
+        // Duration a flash stays visible.  Energy decays linearly to zero.
+        private const float FlashDuration     = 0.09f;
+        private const float CannonFlashPeak   = 12f;
+        private const float RocketFlashPeak   = 5f;
+        private const float MiniFlashPeak     = 2.5f;
+
         // ── Turret reference (set by TurretController on Turret node) ────────
         private TurretController? _turret;
 
@@ -89,14 +108,60 @@ namespace HoverTank
             // Cache owner RID so projectiles can exclude the firing tank
             if (GetParent() is RigidBody3D rb)
                 _ownerRid = rb.GetRid();
+
+            // Create muzzle flash lights parented to each fire point so they
+            // move with the tank automatically.
+            _cannonFlashLight  = AttachFlashLight(_cannon,      range: 8f);
+            _rocketFlashLLight = AttachFlashLight(_rocketLeft,  range: 5f);
+            _rocketFlashRLight = AttachFlashLight(_rocketRight, range: 5f);
+            _miniFlashLLight   = AttachFlashLight(_miniGunLeft, range: 3f);
+            _miniFlashRLight   = AttachFlashLight(_miniGunRight,range: 3f);
+        }
+
+        private static OmniLight3D AttachFlashLight(Marker3D parent, float range)
+        {
+            var light = new OmniLight3D
+            {
+                LightColor    = new Color(1f, 0.80f, 0.35f),
+                LightEnergy   = 0f,
+                OmniRange     = range,
+                ShadowEnabled = false,
+                LightBake     = Light3D.BakeMode.Disabled,
+            };
+            parent.AddChild(light);
+            return light;
+        }
+
+        // Decays a flash timer and updates the light's energy.  Returns the
+        // current energy so a single timer can drive two lights (mini guns).
+        private static float TickFlash(ref float timer, OmniLight3D light, float peak, float dt)
+        {
+            if (timer <= 0f)
+            {
+                light.LightEnergy = 0f;
+                return 0f;
+            }
+            float energy = peak * (timer / FlashDuration);
+            light.LightEnergy = energy;
+            timer = Mathf.Max(0f, timer - dt);
+            return energy;
         }
 
         public override void _Process(double delta)
         {
+            float dt = (float)delta;
+
+            // Tick muzzle flash lights for all fire modes (ghost tanks get flashes too).
+            TickFlash(ref _cannonFlashTimer,  _cannonFlashLight,  CannonFlashPeak,  dt);
+            TickFlash(ref _rocketFlashLTimer, _rocketFlashLLight, RocketFlashPeak,  dt);
+            TickFlash(ref _rocketFlashRTimer, _rocketFlashRLight, RocketFlashPeak,  dt);
+            float miniEnergy = TickFlash(ref _miniFlashTimer, _miniFlashLLight, MiniFlashPeak, dt);
+            _miniFlashRLight.LightEnergy = miniEnergy;
+
             // Ghost tanks are driven entirely by network events — ignore local input.
             if (FireMode == WeaponFireMode.NetworkGhost) return;
 
-            _cooldown -= (float)delta;
+            _cooldown -= dt;
 
             if (Input.IsActionJustPressed(InputPrefix + "next_weapon"))
                 CycleWeapon(1);
@@ -144,6 +209,7 @@ namespace HoverTank
                     SpawnProjectile(_miniGunRight, ProjectileKind.Bullet);
                     MiniGunAmmo = Math.Max(0, MiniGunAmmo - 2);
                     _cooldown = MiniGunInterval;
+                    _miniFlashTimer = FlashDuration;
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Bullet, GlobalPosition);
                     break;
 
@@ -154,9 +220,16 @@ namespace HoverTank
                     SpawnProjectile(rocketOrigin, ProjectileKind.Rocket,
                                     aimOverride: turretFwd,
                                     guidedTarget: AimTarget);
+                    if (_rocketAlternate)
+                        _rocketFlashRTimer = FlashDuration;
+                    else
+                        _rocketFlashLTimer = FlashDuration;
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
+                    // Light recoil pushes the tank backward
+                    if (GetParent() is RigidBody3D rbR)
+                        rbR.ApplyCentralImpulse(rbR.GlobalBasis.Z * 3f);
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Rocket, GlobalPosition);
                     break;
 
@@ -166,6 +239,11 @@ namespace HoverTank
                     SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: turretFwd);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
+                    _cannonFlashTimer = FlashDuration;
+                    // Heavy recoil — shoves the tank backward and the spring-lag
+                    // camera makes the kick visible to the player.
+                    if (GetParent() is RigidBody3D rbS)
+                        rbS.ApplyCentralImpulse(rbS.GlobalBasis.Z * 10f);
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, GlobalPosition);
                     break;
             }

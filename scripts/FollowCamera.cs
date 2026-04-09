@@ -57,6 +57,17 @@ namespace HoverTank
         private readonly Godot.Collections.Array<Rid> _excludeRids = new();
         private PhysicsRayQueryParameters3D _aimQuery = null!;
 
+        // Camera shake state. Amplitude decays linearly to zero each frame.
+        private float _shakeAmplitude;
+        private const float ShakeDecay = 1.0f; // amplitude units lost per second
+
+        // Adds trauma to the camera. Amplitude represents max offset in metres.
+        // Calling multiple times keeps the largest pending value.
+        public void AddShake(float amplitude)
+        {
+            _shakeAmplitude = Mathf.Max(_shakeAmplitude, amplitude);
+        }
+
         public override void _Ready()
         {
             _tank = GetNodeOrNull<HoverTank>(_tankPath);
@@ -138,6 +149,16 @@ namespace HoverTank
             var offset = new Vector3(sinY * cosP, sinP, cosY * cosP) * OrbitRadius;
 
             GlobalPosition = _smoothOrbitCenter + offset;
+
+            // Apply shake offset in camera-local space so it always feels like
+            // a screen-plane displacement regardless of camera orientation.
+            if (_shakeAmplitude > 0.001f)
+            {
+                GlobalPosition += GlobalBasis.X * ((float)GD.RandRange(-1.0, 1.0) * _shakeAmplitude);
+                GlobalPosition += GlobalBasis.Y * ((float)GD.RandRange(-1.0, 1.0) * _shakeAmplitude);
+                _shakeAmplitude = Mathf.Max(0f, _shakeAmplitude - ShakeDecay * dt);
+            }
+
             LookAt(_smoothOrbitCenter, Vector3.Up);
 
             // Raycast from camera through screen centre to find AimTarget.
