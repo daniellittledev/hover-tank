@@ -56,8 +56,9 @@ namespace HoverTank
         private TurretController? _turret;
 
         // World-space point the crosshair aims at. Set by HoverTank each tick.
+        // Null when no camera is present (server-side, ghost tanks).
         // Rockets use this as their guided target.
-        public Vector3 AimTarget { get; set; }
+        public Vector3? AimTarget { get; set; }
 
         public override void _Ready()
         {
@@ -120,7 +121,7 @@ namespace HoverTank
                     var rocketOrigin = _rocketAlternate ? _rocketRight : _rocketLeft;
                     SpawnProjectile(rocketOrigin, ProjectileKind.Rocket,
                                     aimOverride: turretFwd,
-                                    guidedTarget: AimTarget != Vector3.Zero ? AimTarget : (Vector3?)null);
+                                    guidedTarget: AimTarget);
                     _rocketAlternate = !_rocketAlternate;
                     RocketAmmo = Math.Max(0, RocketAmmo - 1);
                     _cooldown = RocketInterval;
@@ -157,8 +158,9 @@ namespace HoverTank
             proj.GlobalTransform = origin.GlobalTransform;
 
             // Override aim direction for turret-aimed weapons (cannon, rockets).
+            // Basis.LookingAt(dir) makes the -Z axis (projectile forward) point toward dir.
             if (aimOverride.HasValue && !aimOverride.Value.IsZeroApprox())
-                proj.GlobalBasis = Basis.LookingAt(-aimOverride.Value.Normalized(), Vector3.Up);
+                proj.GlobalBasis = Basis.LookingAt(aimOverride.Value.Normalized(), Vector3.Up);
 
             // Notify NetworkManager so it can relay the shot over the network.
             Fired?.Invoke(kind, proj.GlobalTransform);

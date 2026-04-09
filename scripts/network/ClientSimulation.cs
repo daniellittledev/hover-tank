@@ -127,8 +127,7 @@ namespace HoverTank
                 Steer           = Input.GetAxis("move_right",    "move_left"),
                 JumpJet         = jumpDown,
                 JumpJustPressed = _jumpLatch,
-                AimYaw          = Camera?.CurrentYaw   ?? 0f,
-                AimPitch        = Camera?.CurrentPitch ?? 0f,
+                AimYaw          = Camera?.CurrentYaw ?? 0f,
             };
         }
 

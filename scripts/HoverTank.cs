@@ -101,8 +101,9 @@ namespace HoverTank
             }
 
             // Feed aim target to weapons so rockets know where to curve.
-            if (Weapons != null && AimCamera != null)
-                Weapons.AimTarget = AimCamera.AimTarget;
+            // Null when no camera exists (server-side tanks, bots).
+            if (Weapons != null)
+                Weapons.AimTarget = AimCamera?.AimTarget;
         }
 
         // ────────────────────────────────────────────────────────────────────
@@ -164,22 +165,18 @@ namespace HoverTank
             }
 
             // ── Halo-style auto-steer: PD controller toward camera yaw ───────
-            // Tank's current world-space yaw (heading of its -Z axis on the XZ plane).
-            float tankYaw  = Mathf.Atan2(-Basis.Z.X, -Basis.Z.Z);
-            float yawError = AngleDiff(input.AimYaw, tankYaw);
+            // tankYaw uses Atan2(Basis.Z.X, Basis.Z.Z) — the angle that places the
+            // camera directly behind this tank — matching FollowCamera's yaw=0
+            // convention. This ensures zero error (and zero torque) when the camera
+            // is centred behind the tank.
+            float tankYaw  = Mathf.Atan2(Basis.Z.X, Basis.Z.Z);
+            float yawError = MathUtils.AngleDiff(input.AimYaw, tankYaw);
             float yawRate  = AngularVelocity.Y;
 
             float autoTorque   = AutoSteerGain * yawError - AutoSteerDamp * yawRate;
             // A/D keys add a steering bias on top of auto-steer (fine-grained swerve).
             float manualTorque = TurnTorque * input.Steer;
             ApplyTorque(Vector3.Up * (autoTorque + manualTorque));
-        }
-
-        // Returns the shortest signed angle from 'from' to 'to', range [-π, π].
-        private static float AngleDiff(float to, float from)
-        {
-            float d = (to - from + Mathf.Pi * 3f) % (Mathf.Pi * 2f) - Mathf.Pi;
-            return d;
         }
 
         // ────────────────────────────────────────────────────────────────────
