@@ -167,7 +167,7 @@ namespace HoverTank
             // Outer panel — top-right corner
             var panel = new PanelContainer();
             panel.AddThemeStyleboxOverride("panel", PanelStyle());
-            panel.AnchorLeft   = 1f; panel.OffsetLeft   = -165f;
+            panel.AnchorLeft   = 1f; panel.OffsetLeft   = -178f;
             panel.AnchorTop    = 0f; panel.OffsetTop    =  20f;
             panel.AnchorRight  = 1f; panel.OffsetRight  = -20f;
             panel.AnchorBottom = 0f; panel.OffsetBottom = 190f;
