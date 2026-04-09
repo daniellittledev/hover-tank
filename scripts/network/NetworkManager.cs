@@ -70,6 +70,9 @@ namespace HoverTank
                 Camera      = tank.AimCamera,
             };
             tank.AddChild(handler);
+
+            // Unit commander: handles ally selection and orders in single-player.
+            tank.AddChild(new UnitCommander { Name = "UnitCommander" });
         }
 
         public void StartHost()
