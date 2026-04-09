@@ -1,5 +1,4 @@
 using Godot;
-using System.Collections.Generic;
 
 namespace HoverTank
 {
@@ -48,13 +47,16 @@ namespace HoverTank
         private WaveState    _state       = WaveState.Starting;
         private int          _currentWave = 0;
         private int          _enemiesAlive;
+        private int          _score;
 
         // ── Scene refs ────────────────────────────────────────────────────────
         private Node3D?      _tanksContainer;
         private PackedScene  _tankScene    = null!;
+        private bool         _playerConnected;
 
         // ── HUD ───────────────────────────────────────────────────────────────
         private Label?       _enemyCountLabel;
+        private Label?       _scoreLabel;
         private Label?       _bannerLabel;
         private float        _bannerTimer;
         private const float  BannerDuration = 2.5f;
@@ -68,7 +70,6 @@ namespace HoverTank
             _tanksContainer = GetTree().Root.GetNodeOrNull<Node3D>("Main/Tanks");
 
             BuildHUD();
-            SubscribeToPlayer();
 
             // Defer first wave so terrain physics are fully initialised.
             CallDeferred(nameof(StartNextWave));
@@ -76,18 +77,25 @@ namespace HoverTank
 
         public override void _Process(double delta)
         {
+            // Banner fade
             if (_bannerTimer > 0f)
             {
                 _bannerTimer -= (float)delta;
                 if (_bannerTimer <= 0f && _bannerLabel != null)
                     _bannerLabel.Visible = false;
             }
+
+            // Retry player connection each frame until found.
+            if (!_playerConnected)
+                TryConnectPlayer();
         }
 
         // ── Wave lifecycle ────────────────────────────────────────────────────
 
         private void StartNextWave()
         {
+            if (_state == WaveState.GameOver) return;
+
             _currentWave++;
             _state = WaveState.InProgress;
 
@@ -153,10 +161,14 @@ namespace HoverTank
         private void OnEnemyDied(HoverTank tank)
         {
             _enemiesAlive--;
+            _score += 100;
             UpdateEnemyCount();
+            UpdateScore();
 
-            // Remove the dead tank from the scene after a brief delay so any
-            // in-flight projectiles can still resolve.
+            // Immediately hide and freeze the tank so it stops shooting and moving.
+            // QueueFree after a short delay lets in-flight projectiles finish.
+            tank.Visible = false;
+            tank.Freeze  = true;
             GetTree().CreateTimer(1.5f).Timeout += tank.QueueFree;
 
             if (_enemiesAlive <= 0 && _state == WaveState.InProgress)
@@ -169,19 +181,14 @@ namespace HoverTank
 
         // ── Player death ──────────────────────────────────────────────────────
 
-        private void SubscribeToPlayer()
-        {
-            // Player may not be in the tree yet; defer one frame.
-            CallDeferred(nameof(ConnectPlayerSignal));
-        }
-
-        private void ConnectPlayerSignal()
+        private void TryConnectPlayer()
         {
             foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
             {
                 if (node is HoverTank tank && !tank.IsEnemy)
                 {
-                    tank.Died += OnPlayerDied;
+                    tank.Died     += OnPlayerDied;
+                    _playerConnected = true;
                     return;
                 }
             }
@@ -216,16 +223,29 @@ namespace HoverTank
             var layer = new CanvasLayer { Layer = 8, Name = "WaveHUD" };
             AddChild(layer);
 
-            // Enemy counter — top right
+            // Score — top right
+            _scoreLabel = new Label
+            {
+                HorizontalAlignment = HorizontalAlignment.Right,
+                AnchorLeft          = 1f, AnchorRight  = 1f,
+                AnchorTop           = 0f, AnchorBottom = 0f,
+                OffsetLeft          = -200f, OffsetRight  = -16f,
+                OffsetTop           = 12f,   OffsetBottom = 40f,
+            };
+            _scoreLabel.AddThemeColorOverride("font_color",   new Color(1f, 0.90f, 0.30f));
+            _scoreLabel.AddThemeFontSizeOverride("font_size", 18);
+            layer.AddChild(_scoreLabel);
+
+            // Enemy counter — top right, below score
             _enemyCountLabel = new Label
             {
                 HorizontalAlignment = HorizontalAlignment.Right,
                 AnchorLeft          = 1f, AnchorRight  = 1f,
                 AnchorTop           = 0f, AnchorBottom = 0f,
                 OffsetLeft          = -200f, OffsetRight  = -16f,
-                OffsetTop           = 12f,   OffsetBottom = 44f,
+                OffsetTop           = 40f,   OffsetBottom = 68f,
             };
-            _enemyCountLabel.AddThemeColorOverride("font_color",     new Color(1f, 0.35f, 0.35f));
+            _enemyCountLabel.AddThemeColorOverride("font_color",   new Color(1f, 0.35f, 0.35f));
             _enemyCountLabel.AddThemeFontSizeOverride("font_size", 18);
             layer.AddChild(_enemyCountLabel);
 
@@ -242,6 +262,8 @@ namespace HoverTank
             _bannerLabel.AddThemeColorOverride("font_color",   new Color(1f, 0.90f, 0.30f));
             _bannerLabel.AddThemeFontSizeOverride("font_size", 36);
             layer.AddChild(_bannerLabel);
+
+            UpdateScore();
         }
 
         private void ShowBanner(string text)
@@ -258,6 +280,12 @@ namespace HoverTank
                 _enemyCountLabel.Text = $"ENEMIES  {_enemiesAlive}";
         }
 
+        private void UpdateScore()
+        {
+            if (_scoreLabel != null)
+                _scoreLabel.Text = $"SCORE  {_score}";
+        }
+
         private void ShowGameOverOverlay()
         {
             var layer = new CanvasLayer { Layer = 20 };
@@ -269,9 +297,9 @@ namespace HoverTank
 
             var vbox = new VBoxContainer();
             vbox.AnchorLeft   = 0.5f; vbox.OffsetLeft   = -160f;
-            vbox.AnchorTop    = 0.5f; vbox.OffsetTop    = -80f;
+            vbox.AnchorTop    = 0.5f; vbox.OffsetTop    = -100f;
             vbox.AnchorRight  = 0.5f; vbox.OffsetRight  =  160f;
-            vbox.AnchorBottom = 0.5f; vbox.OffsetBottom =  80f;
+            vbox.AnchorBottom = 0.5f; vbox.OffsetBottom =  100f;
             vbox.AddThemeConstantOverride("separation", 18);
             layer.AddChild(vbox);
 
@@ -286,7 +314,7 @@ namespace HoverTank
 
             var waveLbl = new Label
             {
-                Text                = $"Reached wave {_currentWave}",
+                Text                = $"Wave {_currentWave}   Score {_score}",
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
             waveLbl.AddThemeColorOverride("font_color",   new Color(0.70f, 0.70f, 0.70f));

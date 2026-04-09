@@ -62,7 +62,7 @@ namespace HoverTank
             TankInput input = BuildMovementInput(toPlayer, dist);
             _tank.SetInput(input);
 
-            TryFire(dist);
+            TryFire(player, dist);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
@@ -133,15 +133,14 @@ namespace HoverTank
             };
         }
 
-        private void TryFire(float dist)
+        private void TryFire(HoverTank player, float dist)
         {
             if (dist > EngageRange) return;
 
-            // Measure how close the turret's actual forward is to the aim target direction.
-            Vector3 turretFwd  = _turret.GetAimForward();
-            Vector3 toPlayerDir = (_tank.GlobalPosition - _turret.GlobalPosition).Normalized();
-            // Note: GetAimForward is -Z; compare against direction to player.
-            float   angleError = turretFwd.AngleTo(-toPlayerDir);
+            // Compare turret forward against the direction to the player.
+            Vector3 turretFwd   = _turret.GetAimForward();
+            Vector3 toPlayerDir = (player.GlobalPosition - _tank.GlobalPosition).Normalized();
+            float   angleError  = turretFwd.AngleTo(toPlayerDir);
 
             if (angleError <= FireAngleThreshold)
                 _weapons.AIFireRequested = true;
