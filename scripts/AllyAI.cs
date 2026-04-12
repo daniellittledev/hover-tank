@@ -47,6 +47,16 @@ namespace HoverTank
         // Aim noise: 0 = perfect, 1 = terrible. Allies are trained but not perfect.
         [Export] public float AimAccuracy   = 0.12f;
 
+        // ── Minigun burst pacing ─────────────────────────────────────────────
+        // Number of trigger-pulls per burst (each fires a left+right pair).
+        [Export] public int   BurstLength      = 6;
+        // Pause between bursts (seconds). A small random jitter is added.
+        [Export] public float BurstRestSeconds = 1.0f;
+
+        // Burst state — only used for the minigun.
+        private int   _burstShotsLeft;
+        private float _burstRestTimer;
+
         // ── Internal refs ────────────────────────────────────────────────────
         private HoverTank        _tank    = null!;
         private TurretController _turret  = null!;
@@ -180,10 +190,34 @@ namespace HoverTank
         private void TryFireAt(HoverTank target, float dist)
         {
             if (dist > EngageRange) return;
+
+            // Minigun bursts: fire a short stream, then rest. Keeps projectile
+            // traffic bounded and prevents continuous-fire frame-rate dips.
+            // Allies use minigun exclusively (_Ready selects it), so this path
+            // always applies.
+            TickMinigunBurst((float)GetPhysicsProcessDeltaTime());
+            if (_burstRestTimer > 0f || _burstShotsLeft <= 0) return;
+
             Vector3 turretFwd   = _turret.GetAimForward();
             Vector3 toTargetDir = (target.GlobalPosition - _tank.GlobalPosition).Normalized();
-            if (turretFwd.AngleTo(toTargetDir) < 0.25f)
-                _weapons.AIFireRequested = true;
+            if (turretFwd.AngleTo(toTargetDir) >= 0.25f) return;
+
+            _weapons.AIFireRequested = true;
+
+            // Only count the slot when the weapon is actually off-cooldown
+            // this tick — otherwise the 60 Hz request loop would burn every
+            // burst slot in a single weapon-cooldown window.
+            if (!_weapons.ReadyToFire) return;
+            _burstShotsLeft--;
+            if (_burstShotsLeft <= 0)
+                _burstRestTimer = BurstRestSeconds + GD.Randf() * 0.4f;
+        }
+
+        private void TickMinigunBurst(float delta)
+        {
+            if (_burstShotsLeft > 0) return;
+            if (_burstRestTimer > 0f) { _burstRestTimer -= delta; return; }
+            _burstShotsLeft = BurstLength;
         }
 
         private void AimTurretAt(Vector3 worldPos)
