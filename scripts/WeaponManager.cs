@@ -39,12 +39,22 @@ namespace HoverTank
         private const float RocketInterval  = 1.5f;
         private const float ShellInterval   = 3.0f;
 
+        // ── AI minigun burst pacing ──────────────────────────────────────────
+        // Applied only to AI fire requests (player hold-trigger is unaffected).
+        // Length + rest must be tuned together: at MiniGunInterval 0.10 s,
+        // a 6-shot burst lasts ~0.6 s; a 1.0 s rest gives ~37 % duty cycle,
+        // which keeps projectile traffic bounded and reads as "bursts" aurally.
+        [Export] public int   AIMinigunBurstLength  = 6;
+        [Export] public float AIMinigunBurstRest    = 1.0f;
+        [Export] public float AIMinigunBurstJitter  = 0.4f;
+
         // ── State ────────────────────────────────────────────────────────────
         public WeaponType CurrentWeapon { get; private set; } = WeaponType.MiniGun;
         private bool         _rocketAlternate;
         private float        _cooldown;
         private Rid          _ownerRid;
         private RigidBody3D? _tankBody;
+        private BurstPacer   _aiMinigunBurst;
 
         // ── Fire points (Marker3D children set in scene) ─────────────────────
         private Marker3D _miniGunLeft  = null!;
@@ -96,11 +106,6 @@ namespace HoverTank
             _cooldown = 0f;
         }
 
-        // True when the current weapon is off-cooldown and ready to fire.
-        // Used by AI burst-pacing so we only decrement burst counters on the
-        // ticks a fire request is actually honoured by WeaponManager.
-        public bool ReadyToFire => _cooldown <= 0f;
-
         public override void _Ready()
         {
             _miniGunLeft  = GetNode<Marker3D>("MiniGunLeft");
@@ -117,6 +122,9 @@ namespace HoverTank
                 _ownerRid = rb.GetRid();
                 _tankBody = rb;
             }
+
+            _aiMinigunBurst = new BurstPacer(
+                AIMinigunBurstLength, AIMinigunBurstRest, AIMinigunBurstJitter);
 
             // Create muzzle flash lights parented to each fire point so they
             // move with the tank automatically.
@@ -192,11 +200,18 @@ namespace HoverTank
             }
 
             // AI fire request — checked after player input so cooldown applies equally.
+            // Minigun is stuttered into bursts via _aiMinigunBurst; rockets and
+            // shells are already naturally paced by their long cooldowns.
             if (AIFireRequested)
             {
-                if (_cooldown <= 0f) Fire();
+                bool burstGate = CurrentWeapon != WeaponType.MiniGun || _aiMinigunBurst.Ready;
+                if (burstGate && _cooldown <= 0f && Fire() && CurrentWeapon == WeaponType.MiniGun)
+                    _aiMinigunBurst.ConsumeShot(GD.Randf());
                 AIFireRequested = false;
             }
+
+            if (CurrentWeapon == WeaponType.MiniGun)
+                _aiMinigunBurst.Tick(dt);
         }
 
         private void CycleWeapon(int dir)
@@ -205,14 +220,16 @@ namespace HoverTank
             _cooldown = 0f; // allow immediate fire after switching
         }
 
-        private void Fire()
+        // Returns true when a shot was actually spawned. Used by the AI burst
+        // pacer so it only consumes a burst slot when a bullet truly flew.
+        private bool Fire()
         {
             Vector3? turretFwd = _turret?.GetAimForward();
 
             switch (CurrentWeapon)
             {
                 case WeaponType.MiniGun:
-                    if (MiniGunAmmo <= 0) return;
+                    if (MiniGunAmmo <= 0) return false;
                     // Minigun tracks the turret aim direction by up to 5% so bullets
                     // subtly follow the player's aim without being fully turret-aimed.
                     Vector3? miniAim = null;
@@ -231,7 +248,7 @@ namespace HoverTank
 
                 case WeaponType.Rocket:
                     // Rockets fire along turret aim and curve toward the crosshair target.
-                    if (RocketAmmo <= 0) return;
+                    if (RocketAmmo <= 0) return false;
                     var rocketOrigin = _rocketAlternate ? _rocketRight : _rocketLeft;
                     SpawnProjectile(rocketOrigin, ProjectileKind.Rocket,
                                     aimOverride: turretFwd,
@@ -249,7 +266,7 @@ namespace HoverTank
 
                 case WeaponType.TankShell:
                     // Cannon shell fires along turret aim direction.
-                    if (TankShellAmmo <= 0) return;
+                    if (TankShellAmmo <= 0) return false;
                     SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: turretFwd);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
@@ -259,6 +276,7 @@ namespace HoverTank
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, GlobalPosition);
                     break;
             }
+            return true;
         }
 
         private void SpawnProjectile(Marker3D origin, ProjectileKind kind,

@@ -22,39 +22,54 @@ multiple AI tanks engaged. Three compounding causes:
 
 - **`scripts/WeaponManager.cs`**
   - `MiniGunInterval`: `0.05 → 0.10` s (halves bullet count at equal hold time).
-  - Added `public bool ReadyToFire => _cooldown <= 0f` so AI burst pacing can
-    tell whether a fire-request this tick will actually produce a shot.
+  - Owns the AI minigun burst pacer (`BurstPacer` struct). Exposes
+    `AIMinigunBurstLength` / `AIMinigunBurstRest` / `AIMinigunBurstJitter`
+    exports. Player hold-trigger behaviour is unchanged — bursts apply only
+    to the `AIFireRequested` path.
+  - `Fire()` now returns `bool`; the burst pacer only consumes a slot when
+    `Fire()` reports a bullet was actually spawned (handles 0-ammo).
+
+- **`scripts/BurstPacer.cs`** *(new)*
+  - Pure struct: `Tick(delta)`, `Ready`, `ConsumeShot(rand01)`. No Godot
+    dependencies; caller supplies the random sample, so behaviour is
+    deterministic under test.
+
+- **`scripts/OfflineSimulation.cs`** *(new)*
+  - Tiny `Node` that rebuilds `ProjectileSpatialGrid` each physics tick from
+    the `hover_tanks` group. Added as a child of `GameSetup` in SinglePlayer
+    and SplitScreen modes. Mirrors `ServerSimulation.Tick`'s grid-rebuild
+    responsibility for the offline path.
 
 - **`scripts/GameSetup.cs`**
-  - New `_PhysicsProcess` that rebuilds `ProjectileSpatialGrid` once per tick
-    from the `hover_tanks` group, but **only** in offline modes
-    (`SinglePlayer`, `SplitScreen`). `NetworkHost` continues to rebuild via
-    `ServerSimulation.Tick`; `NetworkJoin` clients keep the grid empty (their
-    projectiles are `IsVisualOnly` and never ray-cast).
-  - Scratch `_gridPositions` list reused each tick — no per-tick allocation.
+  - Mode switch simplified: the grid-maintenance responsibility moved out to
+    `OfflineSimulation`; a single post-switch guard
+    (`mode is SinglePlayer or SplitScreen`) adds it to the tree.
+  - No more `_rebuildProjectileGrid` flag, no inline `_PhysicsProcess`,
+    no scratch list.
 
 - **`scripts/EnemyAI.cs`** and **`scripts/AllyAI.cs`**
-  - Added `BurstLength` (default 6 pulls) and `BurstRestSeconds` (≈1.0–1.5 s
-    with random jitter) exports.
-  - `TryFire` / `TryFireAt` now gate `AIFireRequested` on a burst counter;
-    counter is decremented **only on ticks where `_weapons.ReadyToFire` is
-    true**, so bursts last the intended number of shots instead of being
-    consumed in a single cooldown window.
-  - EnemyAI burst logic only applies when `PreferredWeapon == MiniGun`;
-    rockets/shells stay on their existing per-shot cadence.
+  - All burst state, exports, and `TickMinigunBurst` helpers **deleted**.
+    Fire code is back to a single `AIFireRequested = true` line. Burst
+    rhythm is now a property of the weapon, not of every shooter type.
 
 ## Architectural decisions
 
-- **Burst counting via `ReadyToFire`** rather than subscribing to the
-  `WeaponManager.Fired` event. The event fires twice per minigun pull (one
-  per barrel), which would complicate counting; the cooldown probe is simpler
-  and reads cleanly from the AI side.
-- **Grid rebuild centralised in `GameSetup`** (which always exists and owns
-  mode dispatch) rather than in `WaveManager` (single-player only) or a new
-  autoload. Keeps the offline vs. networked branching next to the existing
-  `StartSinglePlayer` / `StartHost` switch.
-- **No change to `Projectile.cs`** — the existing spatial-grid pre-filter is
-  already correct; it was simply starved of data in offline mode.
-- Dead tanks (`Health == 0`) are still inserted into the grid, matching
-  `ServerSimulation.Tick`'s behaviour. They're removed from the scene tree
-  shortly after death, so the divergence is negligible.
+- **Burst pacing lives with the weapon, not the shooter.** Previously the
+  same burst logic was copy-pasted across `EnemyAI` and `AllyAI` and was
+  coupled to a leaky `ReadyToFire` probe on `WeaponManager`. Moving it
+  inside `WeaponManager` (a) removes the duplication, (b) means any future
+  AI that holds a minigun gets the same rhythm for free, and (c) keeps the
+  "this weapon stutters in bursts" knowledge next to `MiniGunInterval`.
+  `ReadyToFire` is gone — no longer needed.
+- **`BurstPacer` is a pure struct** with no Godot references. It's unit
+  testable without the scene tree; the codebase has no test harness today
+  but the door is open.
+- **`OfflineSimulation` instead of `GameSetup._PhysicsProcess`.** Grid
+  maintenance is a simulation concern, not a scene-wiring concern. The new
+  node sits parallel to `ServerSimulation` in role and keeps `GameSetup`
+  focused on bootstrap + overlays.
+- **`Fire()` → `bool`.** Prevents the subtle bug where a shot that early-
+  returned on 0 ammo would still have consumed a burst slot. The player
+  path ignores the return value, unchanged.
+- **No change to `Projectile.cs`** — the existing spatial-grid pre-filter
+  was already correct; it was simply starved of data in offline mode.

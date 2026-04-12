@@ -14,27 +14,17 @@ namespace HoverTank
         private PauseMenu _pauseMenu      = null!;
         private CanvasLayer? _connectOverlay;
 
-        // True in offline modes (SinglePlayer / SplitScreen) where no
-        // ServerSimulation exists to rebuild the projectile spatial grid.
-        // GameSetup takes on that job so bullet ray casts can be skipped
-        // when no tank is nearby, matching the networked-host fast path.
-        private bool _rebuildProjectileGrid;
-
-        // Reused each tick to avoid per-frame allocation.
-        private readonly System.Collections.Generic.List<Vector3> _gridPositions = new();
-
         public override void _Ready()
         {
             var nm = GetNode<NetworkManager>("/root/NetworkManager");
             nm.Initialize(GetNode<Node3D>("Tanks"));
 
-            switch (GameState.Instance.Mode)
+            var mode = GameState.Instance.Mode;
+            switch (mode)
             {
                 case GameMode.SinglePlayer:
                     nm.StartSinglePlayer();
-                    var waveManager = new WaveManager { Name = "WaveManager" };
-                    AddChild(waveManager);
-                    _rebuildProjectileGrid = true;
+                    AddChild(new WaveManager { Name = "WaveManager" });
                     break;
 
                 case GameMode.NetworkHost:
@@ -50,29 +40,16 @@ namespace HoverTank
 
                 case GameMode.SplitScreen:
                     nm.StartSinglePlayer();
-                    _rebuildProjectileGrid = true;
                     break;
             }
 
+            // Offline modes need something to maintain the projectile spatial
+            // grid; in networked host mode ServerSimulation handles it.
+            if (mode is GameMode.SinglePlayer or GameMode.SplitScreen)
+                AddChild(new OfflineSimulation { Name = "OfflineSimulation" });
+
             _pauseMenu = new PauseMenu();
             AddChild(_pauseMenu);
-        }
-
-        public override void _PhysicsProcess(double delta)
-        {
-            if (!_rebuildProjectileGrid) return;
-
-            // Offline modes: keep the projectile spatial grid populated so the
-            // Projectile._PhysicsProcess pre-filter can skip the full ray cast
-            // when no tank is within this step's sweep radius. In networked
-            // host mode ServerSimulation.Tick already handles this.
-            _gridPositions.Clear();
-            foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
-            {
-                if (node is HoverTank tank)
-                    _gridPositions.Add(tank.GlobalPosition);
-            }
-            ProjectileSpatialGrid.Instance.Rebuild(_gridPositions);
         }
 
         // ── Escape / pause ────────────────────────────────────────────────────
