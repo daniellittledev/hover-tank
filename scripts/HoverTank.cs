@@ -325,10 +325,16 @@ namespace HoverTank
             float yawError = MathUtils.AngleDiff(input.AimYaw, tankYaw);
             float yawRate  = AngularVelocity.Y;
 
-            float autoTorque   = AutoSteerGain * yawError - AutoSteerDamp * yawRate;
-            // A/D keys add a steering bias on top of auto-steer (fine-grained swerve).
-            float manualTorque = TurnTorque * input.Steer;
-            ApplyTorque(Vector3.Up * (autoTorque + manualTorque));
+            ApplyTorque(Vector3.Up * (AutoSteerGain * yawError - AutoSteerDamp * yawRate));
+
+            if (input.Steer != 0f)
+            {
+                // Positive Steer = A (left), negative = D (right).
+                Vector3 strafeDir = -Basis.X * Mathf.Sign(input.Steer);
+                float speedInDir = LinearVelocity.Dot(strafeDir);
+                if (speedInDir < MaxSpeed)
+                    ApplyCentralForce(strafeDir * ThrustForce * Mathf.Abs(input.Steer));
+            }
         }
 
         // ────────────────────────────────────────────────────────────────────
