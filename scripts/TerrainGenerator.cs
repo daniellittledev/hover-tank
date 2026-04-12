@@ -303,7 +303,7 @@ namespace HoverTank
                                 - positions[zRow + Math.Max(x - 1, 0)];
                     Vector3 dz = positions[zRowNext + x]
                                 - positions[zRowPrev + x];
-                    normals[zRow + x] = dx.Cross(dz).Normalized();
+                    normals[zRow + x] = dz.Cross(dx).Normalized();
                 }
             }
 
