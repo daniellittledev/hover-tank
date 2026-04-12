@@ -26,7 +26,11 @@ namespace HoverTank
         [Export] public float OrbitCenterHeight = 1.5f;
 
         // How fast camera position spring-follows the tank (per second).
-        [Export] public float PositionLag = 6.0f;
+        // Must be high enough that lateral strafe doesn't leave the orbit centre
+        // behind the tank — otherwise the crosshair (camera -Z) drifts off the
+        // tank's actual forward axis and no longer matches where bullets go.
+        // 25 gives ~40 ms time constant → ~0.5 m lag at max strafe speed.
+        [Export] public float PositionLag = 25.0f;
 
         // Mouse sensitivity (radians per pixel).
         [Export] public float MouseSensitivity = 0.003f;
@@ -104,6 +108,7 @@ namespace HoverTank
             if (@event is InputEventMouseMotion motion)
             {
                 CurrentYaw   -= motion.Relative.X * MouseSensitivity;
+                CurrentYaw    = MathUtils.WrapAngle(CurrentYaw);
                 CurrentPitch += motion.Relative.Y * MouseSensitivity;
                 CurrentPitch  = Mathf.Clamp(CurrentPitch, PitchMin, PitchMax);
             }
@@ -136,6 +141,7 @@ namespace HoverTank
             if (Input.MouseMode == Input.MouseModeEnum.Captured)
             {
                 CurrentYaw   -= Input.GetAxis("look_left",  "look_right") * StickSensitivity * dt;
+                CurrentYaw    = MathUtils.WrapAngle(CurrentYaw);
                 CurrentPitch += Input.GetAxis("look_up",    "look_down")  * StickSensitivity * dt;
                 CurrentPitch  = Mathf.Clamp(CurrentPitch, PitchMin, PitchMax);
             }

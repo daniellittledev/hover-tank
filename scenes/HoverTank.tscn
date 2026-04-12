@@ -46,6 +46,8 @@ emission_energy_multiplier = 4.0
 [node name="HoverTank" type="RigidBody3D"]
 script = ExtResource("1_tank")
 mass = 5.0
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, -0.35, 0)
 linear_damp = 0.5
 angular_damp = 3.0
 can_sleep = false
