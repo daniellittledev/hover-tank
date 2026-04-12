@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using GFileAccess = Godot.FileAccess;
 
 namespace HoverTank
@@ -7,17 +8,15 @@ namespace HoverTank
     /// <summary>
     /// Generates moon-like cratered terrain entirely in C# at runtime.
     ///
-    /// Strategy:
-    ///   1. Load terrain/heightmap.png as a base height field. If the file is
-    ///      missing, fall back to FastNoiseLite procedural noise so the project
-    ///      works out-of-the-box without any assets.
-    ///   2. Carve bowl-shaped craters with raised rims procedurally on top.
-    ///   3. Build an ArrayMesh for visual rendering.
-    ///   4. Build a HeightMapShape3D for efficient physics collision.
+    /// Two modes:
+    ///   • Standard (default): a single finite cratered heightmap, edge-walled,
+    ///     used by StandardWaves / multiplayer / split-screen.
+    ///   • TestDrive: infinite chunk-streamed terrain with a shiny metallic
+    ///     grid material and lots of rolling hills / sharp jump bumps. Selected
+    ///     automatically when GameState.SinglePlayerMode == TestDrive.
     ///
     /// Replace terrain/heightmap.png with any 8-bit grayscale PNG to customise
-    /// the base terrain shape. The crater count and depth are tunable via
-    /// exported properties.
+    /// the standard-mode base terrain shape.
     /// </summary>
     public partial class TerrainGenerator : Node3D
     {
@@ -44,9 +43,44 @@ namespace HoverTank
         // ── Heightmap file ──────────────────────────────────────────────────
         [Export] public string HeightmapPath = "res://terrain/heightmap.png";
 
+        // ── TestDrive infinite-chunk streaming ──────────────────────────────
+        // Cells per chunk side. Chunk world size = ChunkCells * CellSize.
+        [Export] public int ChunkCells = 32;
+        // Number of chunks of radius to keep loaded around the player.
+        // Total loaded chunks = (2*ChunkLoadRadius+1)^2.
+        [Export] public int ChunkLoadRadius = 3;
+        // Amplitude of TestDrive rolling hills (metres).
+        [Export] public float InfiniteHillScale = 10f;
+        // Amplitude of sharp asymmetric bumps (jumps) added on top.
+        [Export] public float InfiniteJumpScale = 6f;
+
+        // Runtime state for infinite mode.
+        private bool _infiniteMode;
+        private FastNoiseLite _hillNoise = null!;
+        private FastNoiseLite _jumpNoise = null!;
+        private StandardMaterial3D _infiniteMaterial = null!;
+        private readonly Dictionary<(int, int), Node3D> _chunks = new();
+        private (int, int) _lastCenterChunk = (int.MinValue, int.MinValue);
+        private Node3D? _player;
+
         public override void _Ready()
         {
-            GenerateTerrain();
+            // TestDrive = infinite procedural sandbox with metallic grid surface.
+            var gs = GameState.Instance;
+            _infiniteMode = gs != null
+                && gs.Mode == GameMode.SinglePlayer
+                && gs.SinglePlayerMode == SinglePlayerMode.TestDrive;
+
+            if (_infiniteMode)
+                SetupInfiniteTerrain();
+            else
+                GenerateTerrain();
+        }
+
+        public override void _Process(double delta)
+        {
+            if (!_infiniteMode) return;
+            UpdateStreaming();
         }
 
         private void GenerateTerrain()
@@ -317,6 +351,262 @@ namespace HoverTank
             var arrMesh = new ArrayMesh();
             arrMesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
             return arrMesh;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TestDrive infinite terrain
+        // ═══════════════════════════════════════════════════════════════════
+
+        // Noise sources are world-space so adjacent chunks share boundary values
+        // exactly — no seam stitching required. Normals are also sampled from
+        // world-space SampleHeight so lighting is seamless across chunks.
+        private void SetupInfiniteTerrain()
+        {
+            _hillNoise = new FastNoiseLite
+            {
+                Seed              = NoiseSeed,
+                Frequency         = 0.012f,
+                FractalOctaves    = 4,
+                FractalGain       = 0.5f,
+                FractalLacunarity = 2.0f,
+            };
+            _jumpNoise = new FastNoiseLite
+            {
+                Seed              = NoiseSeed + 1,
+                Frequency         = 0.05f,
+                FractalOctaves    = 2,
+                FractalGain       = 0.4f,
+                FractalLacunarity = 2.2f,
+            };
+
+            _infiniteMaterial = CreateMetallicGridMaterial();
+
+            // Pre-build a block of chunks around the origin so the player tank
+            // (spawned after the terrain's _Ready) has solid ground under it on
+            // frame 0. Streaming takes over from the next _Process tick.
+            for (int dz = -ChunkLoadRadius; dz <= ChunkLoadRadius; dz++)
+                for (int dx = -ChunkLoadRadius; dx <= ChunkLoadRadius; dx++)
+                    _chunks[(dx, dz)] = BuildChunk(dx, dz);
+            _lastCenterChunk = (0, 0);
+        }
+
+        // Combined hill + jump height at world (x, z).
+        //   • Rolling hills: symmetric fractal noise, large amplitude.
+        //   • Jumps: asymmetric bumps (only the positive half of a second noise
+        //     layer, squared) — produces ground-level flats broken up by sharp
+        //     mounds that launch the tank at speed.
+        private float SampleHeight(float wx, float wz)
+        {
+            float hill = _hillNoise.GetNoise2D(wx, wz) * InfiniteHillScale;
+            float j    = _jumpNoise.GetNoise2D(wx, wz);
+            float jump = j > 0f ? j * j * InfiniteJumpScale : 0f;
+            return hill + jump;
+        }
+
+        // Player movement → chunk rebalance. Only runs when the player crosses
+        // a chunk boundary, so per-frame cost is a cheap floor/compare.
+        private void UpdateStreaming()
+        {
+            if (_player == null || !GodotObject.IsInstanceValid(_player))
+                _player = FindPlayerTank();
+            if (_player == null) return;
+
+            float chunkWorld = ChunkCells * CellSize;
+            Vector3 pos = _player.GlobalPosition;
+            int cx = Mathf.FloorToInt(pos.X / chunkWorld);
+            int cz = Mathf.FloorToInt(pos.Z / chunkWorld);
+
+            if ((cx, cz) == _lastCenterChunk && _chunks.Count > 0) return;
+            _lastCenterChunk = (cx, cz);
+
+            // Free out-of-range chunks.
+            var toFree = new List<(int, int)>();
+            foreach (var key in _chunks.Keys)
+            {
+                if (Math.Abs(key.Item1 - cx) > ChunkLoadRadius ||
+                    Math.Abs(key.Item2 - cz) > ChunkLoadRadius)
+                    toFree.Add(key);
+            }
+            foreach (var key in toFree)
+            {
+                _chunks[key].QueueFree();
+                _chunks.Remove(key);
+            }
+
+            // Build any missing in-range chunks.
+            for (int dz = -ChunkLoadRadius; dz <= ChunkLoadRadius; dz++)
+                for (int dx = -ChunkLoadRadius; dx <= ChunkLoadRadius; dx++)
+                {
+                    var key = (cx + dx, cz + dz);
+                    if (!_chunks.ContainsKey(key))
+                        _chunks[key] = BuildChunk(key.Item1, key.Item2);
+                }
+        }
+
+        private Node3D? FindPlayerTank()
+        {
+            foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
+            {
+                if (node is HoverTank tank && !tank.IsEnemy && !tank.IsFriendlyAI)
+                    return tank;
+            }
+            return null;
+        }
+
+        // One chunk = ChunkCells × ChunkCells quads of terrain + matching
+        // HeightMapShape3D collision, parented under a Node3D at the chunk's
+        // world-space origin.
+        private Node3D BuildChunk(int cx, int cz)
+        {
+            int verts = ChunkCells + 1;
+            float chunkWorld = ChunkCells * CellSize;
+            float baseX = cx * chunkWorld;
+            float baseZ = cz * chunkWorld;
+
+            // Sample heights for this chunk's vertex grid.
+            var heights = new float[verts, verts];
+            for (int z = 0; z < verts; z++)
+                for (int x = 0; x < verts; x++)
+                    heights[x, z] = SampleHeight(baseX + x * CellSize, baseZ + z * CellSize);
+
+            // Build mesh with seamless normals sampled across chunk boundaries.
+            var mesh = BuildChunkMesh(heights, verts, baseX, baseZ);
+
+            var meshInst = new MeshInstance3D { Mesh = mesh };
+            meshInst.SetSurfaceOverrideMaterial(0, _infiniteMaterial);
+
+            // HeightMapShape3D collision. Shape is centred on its origin, so we
+            // offset the CollisionShape3D to the chunk centre.
+            var mapData = new float[verts * verts];
+            for (int z = 0; z < verts; z++)
+                for (int x = 0; x < verts; x++)
+                    mapData[z * verts + x] = heights[x, z];
+
+            var hmShape = new HeightMapShape3D
+            {
+                MapWidth  = verts,
+                MapDepth  = verts,
+                MapData   = mapData,
+            };
+            var colShape = new CollisionShape3D
+            {
+                Shape    = hmShape,
+                Scale    = new Vector3(CellSize, 1f, CellSize),
+                Position = new Vector3(chunkWorld * 0.5f, 0f, chunkWorld * 0.5f),
+            };
+            var body = new StaticBody3D();
+            body.AddChild(colShape);
+
+            var root = new Node3D
+            {
+                Name     = $"Chunk_{cx}_{cz}",
+                Position = new Vector3(baseX, 0f, baseZ),
+            };
+            root.AddChild(meshInst);
+            root.AddChild(body);
+            AddChild(root);
+            return root;
+        }
+
+        // Chunk mesh in local space ([0..chunkWorld] on X/Z). UVs are in cell
+        // units (1 UV per cell) so the grid texture tiles exactly once per
+        // terrain cell regardless of chunk size. Normals use SampleHeight on
+        // world-space neighbours so lighting is seamless across chunks.
+        private ArrayMesh BuildChunkMesh(float[,] heights, int verts, float baseX, float baseZ)
+        {
+            int gridSize   = verts - 1;
+            int vertCount  = verts * verts;
+            int indexCount = gridSize * gridSize * 6;
+
+            var positions = new Vector3[vertCount];
+            var normals   = new Vector3[vertCount];
+            var uvs       = new Vector2[vertCount];
+            var indices   = new int[indexCount];
+
+            for (int z = 0; z < verts; z++)
+            {
+                for (int x = 0; x < verts; x++)
+                {
+                    int i = z * verts + x;
+                    float lx = x * CellSize;
+                    float lz = z * CellSize;
+                    positions[i] = new Vector3(lx, heights[x, z], lz);
+                    // World-space-integer UVs = 1 tile per cell.
+                    // Use world coords so grid aligns across chunk boundaries.
+                    uvs[i] = new Vector2((baseX + lx) / CellSize, (baseZ + lz) / CellSize);
+
+                    // Central-difference normal, sampling neighbours in world
+                    // space so interior-chunk values match edge-chunk values.
+                    float wx = baseX + lx;
+                    float wz = baseZ + lz;
+                    float hL = SampleHeight(wx - CellSize, wz);
+                    float hR = SampleHeight(wx + CellSize, wz);
+                    float hD = SampleHeight(wx, wz - CellSize);
+                    float hU = SampleHeight(wx, wz + CellSize);
+                    normals[i] = new Vector3(hL - hR, 2f * CellSize, hD - hU).Normalized();
+                }
+            }
+
+            int idx = 0;
+            for (int z = 0; z < gridSize; z++)
+            {
+                for (int x = 0; x < gridSize; x++)
+                {
+                    int tl = z * verts + x;
+                    int tr = tl + 1;
+                    int bl = (z + 1) * verts + x;
+                    int br = bl + 1;
+                    indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
+                    indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+                }
+            }
+
+            var arrays = new Godot.Collections.Array();
+            arrays.Resize((int)Mesh.ArrayType.Max);
+            arrays[(int)Mesh.ArrayType.Vertex] = positions;
+            arrays[(int)Mesh.ArrayType.Normal] = normals;
+            arrays[(int)Mesh.ArrayType.TexUV]  = uvs;
+            arrays[(int)Mesh.ArrayType.Index]  = indices;
+
+            var mesh = new ArrayMesh();
+            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+            return mesh;
+        }
+
+        // Procedurally-generated shiny metallic grid texture. One texture is
+        // shared across every chunk; UVs are set so exactly one tile = one cell.
+        private StandardMaterial3D CreateMetallicGridMaterial()
+        {
+            const int size      = 128;
+            const int lineWidth = 8;
+
+            var img = Image.Create(size, size, false, Image.Format.Rgba8);
+            var silver = new Color(0.88f, 0.89f, 0.92f);
+            img.Fill(silver);
+
+            // Draw black border lines on all four edges — when tiled at 1 tile
+            // per cell this produces a continuous grid across the terrain.
+            for (int i = 0; i < size; i++)
+            {
+                for (int w = 0; w < lineWidth; w++)
+                {
+                    img.SetPixel(i, w,              Colors.Black);
+                    img.SetPixel(i, size - 1 - w,   Colors.Black);
+                    img.SetPixel(w, i,              Colors.Black);
+                    img.SetPixel(size - 1 - w, i,   Colors.Black);
+                }
+            }
+            img.GenerateMipmaps();
+            var tex = ImageTexture.CreateFromImage(img);
+
+            return new StandardMaterial3D
+            {
+                AlbedoTexture    = tex,
+                TextureFilter    = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
+                Metallic         = 1.0f,
+                MetallicSpecular = 1.0f,
+                Roughness        = 0.18f,
+            };
         }
     }
 }
