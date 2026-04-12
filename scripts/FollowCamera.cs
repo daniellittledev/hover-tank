@@ -148,7 +148,13 @@ namespace HoverTank
 
             // Spring-follow the orbit centre so sudden tank jolts don't snap the camera.
             Vector3 targetCenter = _tank.GlobalPosition + Vector3.Up * OrbitCenterHeight;
-            _smoothOrbitCenter = _smoothOrbitCenter.Lerp(targetCenter, PositionLag * dt);
+            // Cap dt to avoid GC/hitch frames over-correcting the lerp, which
+            // would snap the camera forward and make the tank appear to pop
+            // backward relative to the view. One physics tick (1/60 s) is the
+            // natural upper bound since the tank's position can't change
+            // faster than that anyway.
+            float smoothDt = Mathf.Min(dt, 1f / 60f);
+            _smoothOrbitCenter = _smoothOrbitCenter.Lerp(targetCenter, PositionLag * smoothDt);
 
             // Compute camera position from yaw + pitch orbit.
             // At CurrentYaw=0, pitch=0 the camera sits at (0, 0, +OrbitRadius) from the
