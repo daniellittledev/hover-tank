@@ -101,6 +101,43 @@ namespace HoverTank
             var staticBody = new StaticBody3D();
             staticBody.AddChild(colShape);
             AddChild(staticBody);
+
+            // ── Step 5: invisible edge barriers ────────────────────────────
+            CreateEdgeBarriers(worldSize);
+        }
+
+        // ── Edge barriers ─────────────────────────────────────────────────
+        // Four invisible collision walls around the terrain perimeter so the
+        // tank cannot drive off the edge of the map.
+        private void CreateEdgeBarriers(float worldSize)
+        {
+            float wallHeight = 20f;
+            float wallThickness = 2f;
+            float half = worldSize * 0.5f;
+            float wallY = wallHeight * 0.5f - CraterDepth;
+
+            var walls = new (Vector3 pos, Vector3 size)[]
+            {
+                (new Vector3( half + wallThickness * 0.5f, wallY, 0f),
+                 new Vector3(wallThickness, wallHeight, worldSize + wallThickness * 2f)),
+                (new Vector3(-half - wallThickness * 0.5f, wallY, 0f),
+                 new Vector3(wallThickness, wallHeight, worldSize + wallThickness * 2f)),
+                (new Vector3(0f, wallY,  half + wallThickness * 0.5f),
+                 new Vector3(worldSize + wallThickness * 2f, wallHeight, wallThickness)),
+                (new Vector3(0f, wallY, -half - wallThickness * 0.5f),
+                 new Vector3(worldSize + wallThickness * 2f, wallHeight, wallThickness)),
+            };
+
+            foreach (var (pos, size) in walls)
+            {
+                var body = new StaticBody3D();
+                body.AddChild(new CollisionShape3D
+                {
+                    Shape = new BoxShape3D { Size = size }
+                });
+                body.Position = pos;
+                AddChild(body);
+            }
         }
 
         // ── Height source: PNG image ────────────────────────────────────────
@@ -246,8 +283,8 @@ namespace HoverTank
                     int bl = (z + 1) * verts + x;
                     int br = bl + 1;
 
-                    indices[idx++] = tl; indices[idx++] = bl; indices[idx++] = tr;
-                    indices[idx++] = tr; indices[idx++] = bl; indices[idx++] = br;
+                    indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
+                    indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
                 }
             }
 
@@ -265,7 +302,7 @@ namespace HoverTank
                                 - positions[zRow + Math.Max(x - 1, 0)];
                     Vector3 dz = positions[zRowNext + x]
                                 - positions[zRowPrev + x];
-                    normals[zRow + x] = dz.Cross(dx).Normalized();
+                    normals[zRow + x] = dx.Cross(dz).Normalized();
                 }
             }
 
