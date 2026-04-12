@@ -419,8 +419,8 @@ namespace HoverTank
 			_modeOption.Selected = 0;
 			_modeOption.ItemSelected += idx => _windowMode = idx switch
 			{
-				1 => DisplayServer.WindowMode.Fullscreen,
-				2 => DisplayServer.WindowMode.Maximized,
+				1 => DisplayServer.WindowMode.ExclusiveFullscreen,
+				2 => DisplayServer.WindowMode.Fullscreen,
 				_ => DisplayServer.WindowMode.Windowed,
 			};
 			vbox.AddChild(_modeOption);
@@ -470,10 +470,19 @@ namespace HoverTank
 		private void OnApplySettings()
 		{
 			var res = Resolutions[_selectedRes];
-			DisplayServer.WindowSetMode(_windowMode);
-			// Fullscreen ignores explicit size; only set it in windowed modes.
-			if (_windowMode == DisplayServer.WindowMode.Windowed)
+
+			// Set size before mode: ExclusiveFullscreen uses the pre-set size to
+			// pick a display mode; Borderless (Godot's Fullscreen) uses native res.
+			if (_windowMode != DisplayServer.WindowMode.Fullscreen)
 				DisplayServer.WindowSetSize(res);
+
+			DisplayServer.WindowSetMode(_windowMode);
+
+			if (_windowMode == DisplayServer.WindowMode.Windowed)
+			{
+				var screen = DisplayServer.ScreenGetSize();
+				DisplayServer.WindowSetPosition((screen - res) / 2);
+			}
 		}
 	}
 }
