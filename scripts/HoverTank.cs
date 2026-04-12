@@ -40,6 +40,13 @@ namespace HoverTank
         // Speed cap (m/s) in the thrust direction — prevents endless acceleration.
         [Export] public float MaxSpeed = 12f;
 
+        // ── Angular drag ────────────────────────────────────────────────
+        // Counter-torque proportional to angular velocity, applied each physics
+        // tick.  Supplements the scene-level angular_damp (which only removes
+        // ~5 %/frame at 3.0) to kill unwanted spins quickly without fighting
+        // deliberate yaw from the auto-steer.
+        [Export] public float AngularDrag = 15f;
+
         // ── Jump jets ───────────────────────────────────────────────────────
         // Instantaneous upward impulse (kg·m/s) on the first frame E is pressed.
         [Export] public float JumpImpulse = 8f;
@@ -225,6 +232,7 @@ namespace HoverTank
             ProcessHoverForces();
             ProcessMovement(_currentInput);
             ProcessJumpJets(_currentInput);
+            ApplyTorque(-AngularVelocity * AngularDrag);
 
             // Drive turret toward camera aim direction.
             if (_turret != null && AimCamera != null)
