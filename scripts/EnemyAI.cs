@@ -25,6 +25,13 @@ namespace HoverTank
         // Maximum angle error (radians) allowed before firing.
         [Export] public float FireAngleThreshold = 0.30f;
 
+        // ── Minigun burst pacing ─────────────────────────────────────────────
+        // Number of trigger-pulls per burst. WeaponManager converts each pull
+        // into 2 bullets for the minigun.
+        [Export] public int   BurstLength       = 6;
+        // Pause between bursts (seconds). A small random jitter is added.
+        [Export] public float BurstRestSeconds  = 1.1f;
+
         // ── Internal refs ────────────────────────────────────────────────────
         private HoverTank         _tank    = null!;
         private TurretController  _turret  = null!;
@@ -34,6 +41,10 @@ namespace HoverTank
         private float _noiseYaw;
         private float _noisePitch;
         private float _noiseDriftTimer;
+
+        // Burst state — only used for the minigun.
+        private int   _burstShotsLeft;
+        private float _burstRestTimer;
 
         public override void _Ready()
         {
@@ -135,6 +146,15 @@ namespace HoverTank
 
         private void TryFire(HoverTank player, float dist)
         {
+            // Minigun: fire in bursts so the projectile count stays bounded and
+            // enemies don't sound like a continuous buzzsaw. Rockets and shells
+            // are naturally paced by WeaponManager's per-shot cooldowns.
+            if (PreferredWeapon == WeaponType.MiniGun)
+            {
+                TickMinigunBurst((float)GetPhysicsProcessDeltaTime());
+                if (_burstRestTimer > 0f || _burstShotsLeft <= 0) return;
+            }
+
             if (dist > EngageRange) return;
 
             // Compare turret forward against the direction to the player.
@@ -142,8 +162,27 @@ namespace HoverTank
             Vector3 toPlayerDir = (player.GlobalPosition - _tank.GlobalPosition).Normalized();
             float   angleError  = turretFwd.AngleTo(toPlayerDir);
 
-            if (angleError <= FireAngleThreshold)
-                _weapons.AIFireRequested = true;
+            if (angleError > FireAngleThreshold) return;
+
+            _weapons.AIFireRequested = true;
+
+            // Only consume a burst slot when the weapon is actually going to
+            // fire this tick (off-cooldown). Otherwise every physics tick in
+            // the spray would burn a slot and bursts would last one shot.
+            if (PreferredWeapon == WeaponType.MiniGun && _weapons.ReadyToFire)
+            {
+                _burstShotsLeft--;
+                if (_burstShotsLeft <= 0)
+                    _burstRestTimer = BurstRestSeconds + GD.Randf() * 0.4f;
+            }
+        }
+
+        // Reload the burst magazine once the rest timer runs out.
+        private void TickMinigunBurst(float delta)
+        {
+            if (_burstShotsLeft > 0) return;
+            if (_burstRestTimer > 0f) { _burstRestTimer -= delta; return; }
+            _burstShotsLeft = BurstLength;
         }
     }
 }

@@ -35,7 +35,7 @@ namespace HoverTank
         public const int MaxTankShellAmmo = 15;
 
         // ── Fire intervals (seconds between shots) ──────────────────────────
-        private const float MiniGunInterval = 0.05f;  // 20 rounds/sec
+        private const float MiniGunInterval = 0.10f;  // 10 pairs/sec (20 bullets/sec)
         private const float RocketInterval  = 1.5f;
         private const float ShellInterval   = 3.0f;
 
@@ -95,6 +95,11 @@ namespace HoverTank
             CurrentWeapon = weapon;
             _cooldown = 0f;
         }
+
+        // True when the current weapon is off-cooldown and ready to fire.
+        // Used by AI burst-pacing so we only decrement burst counters on the
+        // ticks a fire request is actually honoured by WeaponManager.
+        public bool ReadyToFire => _cooldown <= 0f;
 
         public override void _Ready()
         {
