@@ -21,6 +21,7 @@ namespace HoverTank
 
 		// ── Panels ───────────────────────────────────────────────────────────
 		private Control _mainPanel    = null!;
+		private Control _singlePanel  = null!;
 		private Control _multiPanel   = null!;
 		private Control _networkPanel = null!;
 		private Control _joinPanel    = null!;
@@ -51,6 +52,7 @@ namespace HoverTank
 			AddTitle(root);
 
 			_mainPanel     = BuildMainPanel(root);
+			_singlePanel   = BuildSinglePanel(root);
 			_multiPanel    = BuildMultiPanel(root);
 			_networkPanel  = BuildNetworkPanel(root);
 			_joinPanel     = BuildJoinPanel(root);
@@ -68,6 +70,7 @@ namespace HoverTank
 				if (_joinPanel.Visible)    { ShowPanel(_networkPanel); return; }
 				if (_networkPanel.Visible) { ShowPanel(_multiPanel);   return; }
 				if (_multiPanel.Visible)   { ShowPanel(_mainPanel);    return; }
+				if (_singlePanel.Visible)  { ShowPanel(_mainPanel);    return; }
 				if (_settingsPanel.Visible){ ShowPanel(_mainPanel);    return; }
 			}
 		}
@@ -127,6 +130,7 @@ namespace HoverTank
 		private void ShowPanel(Control panel)
 		{
 			_mainPanel.Visible     = panel == _mainPanel;
+			_singlePanel.Visible   = panel == _singlePanel;
 			_multiPanel.Visible    = panel == _multiPanel;
 			_networkPanel.Visible  = panel == _networkPanel;
 			_joinPanel.Visible     = panel == _joinPanel;
@@ -217,8 +221,8 @@ namespace HoverTank
 			vbox.AddChild(MakeSectionLabel("MISSION SELECT"));
 			vbox.AddChild(MakeSep());
 
-			var btnSP = MakeBtn("SINGLE PLAYER");
-			btnSP.Pressed += OnSinglePlayer;
+			var btnSP = MakeBtn("SINGLE PLAYER  >");
+			btnSP.Pressed += () => ShowPanel(_singlePanel);
 			vbox.AddChild(btnSP);
 
 			var btnMP = MakeBtn("MULTIPLAYER  >");
@@ -234,6 +238,32 @@ namespace HoverTank
 			var btnQuit = MakeBtn("QUIT");
 			btnQuit.Pressed += () => GetTree().Quit();
 			vbox.AddChild(btnQuit);
+
+			return (Control)vbox.GetParent();
+		}
+
+		// ── Single player panel ───────────────────────────────────────────────
+
+		private Control BuildSinglePanel(Control root)
+		{
+			var vbox = MakeCentredPanel(root);
+
+			vbox.AddChild(MakeSectionLabel("SINGLE PLAYER"));
+			vbox.AddChild(MakeSep());
+
+			var btnWaves = MakeBtn("STANDARD WAVES");
+			btnWaves.Pressed += () => OnSinglePlayer(SinglePlayerMode.StandardWaves);
+			vbox.AddChild(btnWaves);
+
+			var btnTest = MakeBtn("TEST DRIVE");
+			btnTest.Pressed += () => OnSinglePlayer(SinglePlayerMode.TestDrive);
+			vbox.AddChild(btnTest);
+
+			vbox.AddChild(MakeSep());
+
+			var btnBack = MakeBtn("< BACK");
+			btnBack.Pressed += () => ShowPanel(_mainPanel);
+			vbox.AddChild(btnBack);
 
 			return (Control)vbox.GetParent();
 		}
@@ -440,9 +470,10 @@ namespace HoverTank
 
 		// ── Button callbacks ─────────────────────────────────────────────────
 
-		private void OnSinglePlayer()
+		private void OnSinglePlayer(SinglePlayerMode spMode)
 		{
-			GameState.Instance.Mode = GameMode.SinglePlayer;
+			GameState.Instance.Mode             = GameMode.SinglePlayer;
+			GameState.Instance.SinglePlayerMode = spMode;
 			GetTree().ChangeSceneToFile("res://scenes/Main.tscn");
 		}
 

@@ -24,7 +24,10 @@ namespace HoverTank
             {
                 case GameMode.SinglePlayer:
                     nm.StartSinglePlayer();
-                    AddChild(new WaveManager { Name = "WaveManager" });
+                    // TestDrive = empty sandbox; WaveManager also owns ally spawns,
+                    // so skipping it leaves just the player tank on the map.
+                    if (GameState.Instance.SinglePlayerMode == SinglePlayerMode.StandardWaves)
+                        AddChild(new WaveManager { Name = "WaveManager" });
                     break;
 
                 case GameMode.NetworkHost:
