@@ -40,7 +40,7 @@ namespace HoverTank
             List<Vector3> v, List<Vector3> n, List<Vector2> u)
         {
             if (v.Count == 0) return;
-            var arrays = new Array();
+            var arrays = new Godot.Collections.Array();
             arrays.Resize((int)Mesh.ArrayType.Max);
             arrays[(int)Mesh.ArrayType.Vertex] = v.ToArray();
             arrays[(int)Mesh.ArrayType.Normal] = n.ToArray();

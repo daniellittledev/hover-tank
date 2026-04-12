@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using GFileAccess = Godot.FileAccess;
 
 namespace HoverTank
 {
@@ -143,7 +144,7 @@ namespace HoverTank
         // ── Height source: PNG image ────────────────────────────────────────
         private Image? TryLoadHeightmapImage()
         {
-            if (!FileAccess.FileExists(HeightmapPath)) return null;
+            if (!GFileAccess.FileExists(HeightmapPath)) return null;
 
             var img = Image.LoadFromFile(HeightmapPath);
             if (img == null || img.IsEmpty()) return null;

@@ -4,7 +4,7 @@ using System;
 namespace HoverTank
 {
     // Procedural audio system — all sounds are synthesised from PCM at startup.
-    // No audio files are required; every sound is generated as an AudioStreamWAV.
+    // No audio files are required; every sound is generated as an AudioStreamWav.
     //
     // Sounds:
     //   Engine hum  — looping multi-harmonic tone, pitch/volume driven by throttle.
@@ -22,15 +22,15 @@ namespace HoverTank
         private const int PoolSize   = 16;
 
         // Exposed so HoverTank can create per-tank players with the right stream.
-        public AudioStreamWAV EngineHumStream    { get; private set; } = null!;
+        public AudioStreamWav EngineHumStream    { get; private set; } = null!;
 
-        private AudioStreamWAV _minigunStream        = null!;
-        private AudioStreamWAV _rocketFireStream     = null!;
-        private AudioStreamWAV _shellFireStream      = null!;
-        private AudioStreamWAV _bulletImpactStream   = null!;
-        private AudioStreamWAV _explosionSmallStream = null!;
-        private AudioStreamWAV _explosionLargeStream = null!;
-        private AudioStreamWAV _ambientStream        = null!;
+        private AudioStreamWav _minigunStream        = null!;
+        private AudioStreamWav _rocketFireStream     = null!;
+        private AudioStreamWav _shellFireStream      = null!;
+        private AudioStreamWav _bulletImpactStream   = null!;
+        private AudioStreamWav _explosionSmallStream = null!;
+        private AudioStreamWav _explosionLargeStream = null!;
+        private AudioStreamWav _ambientStream        = null!;
 
         // Pool of spatial players reused for all one-shot sounds.
         private AudioStreamPlayer3D[] _pool = null!;
@@ -56,7 +56,7 @@ namespace HoverTank
                 VolumeDb         = -14f,
                 MaxDb            = 3f,
                 UnitSize         = 10f,
-                AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.Inverse,
+                AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance,
                 PitchScale       = 0.75f,
                 Autoplay         = true,
             };
@@ -103,7 +103,7 @@ namespace HoverTank
 
         // ── Internal pool ───────────────────────────────────────────────────
 
-        private void PlayAt(AudioStreamWAV stream, Vector3 pos, float volumeDb, float pitch)
+        private void PlayAt(AudioStreamWav stream, Vector3 pos, float volumeDb, float pitch)
         {
             var player = GetIdlePlayer();
             player.Stream         = stream;
@@ -136,7 +136,7 @@ namespace HoverTank
                 {
                     MaxDb    = 3f,
                     UnitSize = 20f,
-                    AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.Inverse,
+                    AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance,
                 };
                 AddChild(p);
                 _pool[i] = p;
@@ -169,7 +169,7 @@ namespace HoverTank
         }
 
         // Converts a normalised float sample array [-1, 1] to a little-endian
-        // int16 byte array suitable for AudioStreamWAV.Data.
+        // int16 byte array suitable for AudioStreamWav.Data.
         private static byte[] ToPcm(float[] samples)
         {
             var bytes = new byte[samples.Length * 2];
@@ -182,18 +182,18 @@ namespace HoverTank
             return bytes;
         }
 
-        private static AudioStreamWAV MakeStream(float[] samples, bool loop = false)
+        private static AudioStreamWav MakeStream(float[] samples, bool loop = false)
         {
-            var stream = new AudioStreamWAV
+            var stream = new AudioStreamWav
             {
                 Data    = ToPcm(samples),
-                Format  = AudioStreamWAV.FormatEnum.Format16Bits,
+                Format  = AudioStreamWav.FormatEnum.Format16Bits,
                 MixRate = SampleRate,
                 Stereo  = false,
             };
             if (loop)
             {
-                stream.LoopMode  = AudioStreamWAV.LoopModeEnum.Forward;
+                stream.LoopMode  = AudioStreamWav.LoopModeEnum.Forward;
                 stream.LoopBegin = 0;
                 stream.LoopEnd   = samples.Length;
             }
@@ -205,7 +205,7 @@ namespace HoverTank
         // ── Engine hum: 1-second looping multi-harmonic tone ─────────────────
         // Layered harmonics (75, 150, 225 Hz) + a faint electric whine (1100 Hz)
         // give the feel of a heavy magnetic levitation drive.
-        private static AudioStreamWAV GenerateEngineHum()
+        private static AudioStreamWav GenerateEngineHum()
         {
             int n = SampleRate; // 1 second loop
             var samples = new float[n];
@@ -223,7 +223,7 @@ namespace HoverTank
         }
 
         // ── Minigun: 70 ms noise + tonal crack ───────────────────────────────
-        private static AudioStreamWAV GenerateMinigunFire(Random rng)
+        private static AudioStreamWav GenerateMinigunFire(Random rng)
         {
             int n = (int)(SampleRate * 0.07f);
             var samples = new float[n];
@@ -238,7 +238,7 @@ namespace HoverTank
         }
 
         // ── Rocket fire: initial crack + 500 ms swept whoosh ─────────────────
-        private static AudioStreamWAV GenerateRocketFire(Random rng)
+        private static AudioStreamWav GenerateRocketFire(Random rng)
         {
             int   n       = (int)(SampleRate * 0.5f);
             var   samples = new float[n];
@@ -258,7 +258,7 @@ namespace HoverTank
         }
 
         // ── Shell fire: deep bass boom (90→40 Hz sweep) + initial crack ───────
-        private static AudioStreamWAV GenerateShellFire(Random rng)
+        private static AudioStreamWav GenerateShellFire(Random rng)
         {
             int   n       = (int)(SampleRate * 0.6f);
             var   samples = new float[n];
@@ -277,7 +277,7 @@ namespace HoverTank
         }
 
         // ── Bullet impact: 120 ms snappy crack ───────────────────────────────
-        private static AudioStreamWAV GenerateBulletImpact(Random rng)
+        private static AudioStreamWav GenerateBulletImpact(Random rng)
         {
             int n = (int)(SampleRate * 0.12f);
             var samples = new float[n];
@@ -292,7 +292,7 @@ namespace HoverTank
 
         // ── Explosion: layered thump + blast + long rumble tail ──────────────
         // Used for both projectile impacts (small, 1 s) and tank deaths (large, 1.8 s).
-        private static AudioStreamWAV GenerateExplosion(Random rng, float durationSec)
+        private static AudioStreamWav GenerateExplosion(Random rng, float durationSec)
         {
             int   n       = (int)(SampleRate * durationSec);
             var   samples = new float[n];
@@ -312,7 +312,7 @@ namespace HoverTank
         }
 
         // ── Ambient: 4-second low-pass filtered wind noise loop ──────────────
-        private static AudioStreamWAV GenerateAmbient(Random rng)
+        private static AudioStreamWav GenerateAmbient(Random rng)
         {
             int n = SampleRate * 4;
             var raw = new float[n];

@@ -12,7 +12,7 @@ namespace HoverTank
     ///   - Row of unit-card icons along the top-left of the screen.
     ///   - Contextual action list showing available keys and the active order.
     /// </summary>
-    public partial class UnitCommander : Node
+    public partial class UnitCommander : Node3D
     {
         // ── Formation ────────────────────────────────────────────────────────
         private enum FormationType { Wedge, Line, Column }
