@@ -67,10 +67,10 @@ namespace HoverTank
         {
             var (stream, vol, pitch) = kind switch
             {
-                ProjectileKind.Bullet => (_minigunStream,    -6f,  0.9f + (float)GD.RandRange(0.0, 0.2)),
-                ProjectileKind.Rocket => (_rocketFireStream, -3f,  0.9f + (float)GD.RandRange(0.0, 0.15)),
-                ProjectileKind.Shell  => (_shellFireStream,  -2f,  0.85f + (float)GD.RandRange(0.0, 0.15)),
-                _                     => (_minigunStream,    -6f,  1f),
+                ProjectileKind.Bullet => (_minigunStream,    -18f, 0.9f + (float)GD.RandRange(0.0, 0.2)),
+                ProjectileKind.Rocket => (_rocketFireStream, -15f, 0.9f + (float)GD.RandRange(0.0, 0.15)),
+                ProjectileKind.Shell  => (_shellFireStream,  -14f, 0.85f + (float)GD.RandRange(0.0, 0.15)),
+                _                     => (_minigunStream,    -18f, 1f),
             };
             PlayAt(stream, position, vol, pitch);
         }
@@ -79,15 +79,15 @@ namespace HoverTank
         public void PlayImpact(ProjectileKind kind, Vector3 position)
         {
             if (kind == ProjectileKind.Bullet)
-                PlayAt(_bulletImpactStream,   position, -8f, 0.85f + (float)GD.RandRange(0.0, 0.3));
+                PlayAt(_bulletImpactStream,   position, -20f, 0.85f + (float)GD.RandRange(0.0, 0.3));
             else
-                PlayAt(_explosionSmallStream, position, -2f, 0.9f  + (float)GD.RandRange(0.0, 0.2));
+                PlayAt(_explosionSmallStream, position, -14f, 0.9f  + (float)GD.RandRange(0.0, 0.2));
         }
 
         // Called by HoverTank when a tank is destroyed.
         public void PlayExplosion(Vector3 position)
         {
-            PlayAt(_explosionLargeStream, position, 0f, 0.9f + (float)GD.RandRange(0.0, 0.15));
+            PlayAt(_explosionLargeStream, position, -12f, 0.9f + (float)GD.RandRange(0.0, 0.15));
         }
 
         // Called by HoverTank._PhysicsProcess() to modulate the engine hum each tick.

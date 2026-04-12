@@ -243,7 +243,7 @@ namespace HoverTank
                     _cooldown = ShellInterval;
                     _cannonFlashTimer = FlashDuration;
                     // Spring-lag camera turns this backward shove into a visible kick.
-                    _tankBody?.ApplyCentralImpulse(_tankBody.GlobalBasis.Z * 10f);
+                    _tankBody?.ApplyCentralImpulse(_tankBody.GlobalBasis.Z * 4f);
                     AudioManager.Instance?.PlayWeaponFire(ProjectileKind.Shell, GlobalPosition);
                     break;
             }
