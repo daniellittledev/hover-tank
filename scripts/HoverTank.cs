@@ -42,6 +42,21 @@ namespace HoverTank
         // Yaw damping is owned entirely by AutoSteerDamp in the PD controller.
         [Export] public float TiltDrag = 30f;
 
+        // ── Self-righting (bottom-heavy behaviour) ──────────────────────
+        // Restoring torque that rotates the tank's local +Y toward world +Y.
+        // Gentle enough that a jump-jet flip or terrain jolt still lets the
+        // tank leave vertical briefly, but strong enough that any upside-down
+        // state recovers in a second or two. Computed as (localUp × worldUp),
+        // whose magnitude is sin(tilt) — so the torque grows smoothly with
+        // tilt, peaks at 90°, and *reverses sign past 180°*. To still self-
+        // right from fully inverted, we add a small constant nudge when the
+        // tank is within a few degrees of straight upside-down (sin→0 there).
+        [Export] public float UprightGain = 25f;
+        // When dot(localUp, worldUp) < this threshold (≈ inverted), add a
+        // small nudge torque about the tank's local roll axis so the cross
+        // product has something to grab onto.
+        private const float InvertedThreshold = -0.9f;
+
         // ── Jump jets ───────────────────────────────────────────────────────
         // Instantaneous upward impulse (kg·m/s) on the first frame E is pressed.
         [Export] public float JumpImpulse = 3f;
@@ -237,6 +252,7 @@ namespace HoverTank
             ProcessJumpJets(_currentInput);
             var av = AngularVelocity;
             ApplyTorque(new Vector3(-av.X * TiltDrag, 0f, -av.Z * TiltDrag));
+            ProcessSelfRighting();
 
             // Drive turret toward camera aim direction.
             if (_turret != null && AimCamera != null)
@@ -381,6 +397,30 @@ namespace HoverTank
         {
             ProcessMovement(input);
             ProcessJumpJets(input);
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // Self-righting: torque that rotates the tank's local +Y toward world
+        // +Y. Combined with the existing TiltDrag (D-term on roll/pitch rate),
+        // this forms a PD controller that keeps the tank upright long-term but
+        // lets it tumble freely in the short term — so a jump-jet backflip
+        // plays out fully before the tank rolls itself back over.
+        // ────────────────────────────────────────────────────────────────────
+        private void ProcessSelfRighting()
+        {
+            Vector3 localUp = GlobalBasis.Y;
+            // (localUp × worldUp) is a world-space vector whose magnitude is
+            // sin(tilt) and whose direction is the axis of shortest rotation
+            // from localUp to worldUp.
+            Vector3 axis = localUp.Cross(Vector3.Up);
+
+            // Fully inverted: cross product collapses to zero and provides no
+            // restoring direction. Nudge about the tank's local roll axis so
+            // the P-term has something to work with on the next tick.
+            if (localUp.Y < InvertedThreshold && axis.LengthSquared() < 0.01f)
+                axis = GlobalBasis.Z;
+
+            ApplyTorque(axis * UprightGain);
         }
     }
 }
