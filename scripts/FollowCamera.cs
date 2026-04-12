@@ -98,16 +98,6 @@ namespace HoverTank
         {
             if (!Current) return;
 
-            // Escape toggles mouse capture so the player can reach the OS.
-            if (@event is InputEventKey key && key.Keycode == Key.Escape
-                                            && key.Pressed && !key.Echo)
-            {
-                Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured
-                    ? Input.MouseModeEnum.Visible
-                    : Input.MouseModeEnum.Captured;
-                return;
-            }
-
             // Only accumulate mouse look when the cursor is captured.
             if (Input.MouseMode != Input.MouseModeEnum.Captured) return;
 
@@ -116,6 +106,22 @@ namespace HoverTank
                 CurrentYaw   -= motion.Relative.X * MouseSensitivity;
                 CurrentPitch += motion.Relative.Y * MouseSensitivity;
                 CurrentPitch  = Mathf.Clamp(CurrentPitch, PitchMin, PitchMax);
+            }
+        }
+
+        // Escape toggles mouse capture so the player can reach the OS. Uses
+        // _UnhandledInput so UnitCommander can consume Escape when it's being
+        // used to deselect units instead.
+        public override void _UnhandledInput(InputEvent @event)
+        {
+            if (!Current) return;
+
+            if (@event is InputEventKey key && key.Keycode == Key.Escape
+                                            && key.Pressed && !key.Echo)
+            {
+                Input.MouseMode = Input.MouseMode == Input.MouseModeEnum.Captured
+                    ? Input.MouseModeEnum.Visible
+                    : Input.MouseModeEnum.Captured;
             }
         }
 
