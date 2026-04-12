@@ -10,7 +10,7 @@ namespace HoverTank
     /// Each wave spawns N enemy tanks evenly distributed around the origin.
     /// Difficulty scales per wave: more enemies, better accuracy, heavier weapons.
     /// </summary>
-    public partial class WaveManager : Node
+    public partial class WaveManager : Node3D
     {
         // ── Wave difficulty config ────────────────────────────────────────────
         private readonly struct WaveConfig

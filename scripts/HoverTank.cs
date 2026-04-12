@@ -132,7 +132,7 @@ namespace HoverTank
                 LightEnergy   = 20f,
                 OmniRange     = 18f,
                 ShadowEnabled = false,
-                LightBake     = Light3D.BakeMode.Disabled,
+                LightBakeMode = Light3D.BakeMode.Disabled,
             };
             scene.AddChild(flash);
             flash.GlobalPosition = GlobalPosition;

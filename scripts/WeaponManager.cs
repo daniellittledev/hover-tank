@@ -130,7 +130,7 @@ namespace HoverTank
                 LightEnergy   = 0f,
                 OmniRange     = range,
                 ShadowEnabled = false,
-                LightBake     = Light3D.BakeMode.Disabled,
+                LightBakeMode = Light3D.BakeMode.Disabled,
             };
             parent.AddChild(light);
             return light;

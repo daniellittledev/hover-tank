@@ -12,7 +12,7 @@ namespace HoverTank
     public partial class GameSetup : Node
     {
         private PauseMenu _pauseMenu      = null!;
-        private Control?  _connectOverlay;
+        private CanvasLayer? _connectOverlay;
 
         public override void _Ready()
         {
