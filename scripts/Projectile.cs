@@ -180,7 +180,7 @@ namespace HoverTank
                     float   maxAngle = MaxTurnRadPerSec * (float)delta;
                     float   t        = Mathf.Min(1f, maxAngle / angle);
                     Vector3 newFwd   = currentFwd.Slerp(toTarget, t).Normalized();
-                    GlobalBasis      = Basis.LookingAt(-newFwd, Vector3.Up);
+                    GlobalBasis      = Basis.LookingAt(newFwd, Vector3.Up);
                 }
             }
 

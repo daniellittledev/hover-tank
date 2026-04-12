@@ -207,10 +207,17 @@ namespace HoverTank
             switch (CurrentWeapon)
             {
                 case WeaponType.MiniGun:
-                    // Minigun is fixed to the tank body — no turret involvement.
                     if (MiniGunAmmo <= 0) return;
-                    SpawnProjectile(_miniGunLeft,  ProjectileKind.Bullet);
-                    SpawnProjectile(_miniGunRight, ProjectileKind.Bullet);
+                    // Minigun tracks the turret aim direction by up to 5% so bullets
+                    // subtly follow the player's aim without being fully turret-aimed.
+                    Vector3? miniAim = null;
+                    if (turretFwd.HasValue)
+                    {
+                        Vector3 tankFwd = -GlobalBasis.Z;
+                        miniAim = tankFwd.Lerp(turretFwd.Value, 0.05f).Normalized();
+                    }
+                    SpawnProjectile(_miniGunLeft,  ProjectileKind.Bullet, aimOverride: miniAim);
+                    SpawnProjectile(_miniGunRight, ProjectileKind.Bullet, aimOverride: miniAim);
                     MiniGunAmmo = Math.Max(0, MiniGunAmmo - 2);
                     _cooldown = MiniGunInterval;
                     _miniFlashTimer = FlashDuration;
