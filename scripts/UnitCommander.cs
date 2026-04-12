@@ -5,8 +5,20 @@ namespace HoverTank
 {
     /// <summary>
     /// Attached as a child of the player's HoverTank in single-player mode.
-    /// Handles crosshair-based ally selection (LMB / Shift+LMB / Ctrl+LMB),
-    /// order dispatch (G/H/V/B), formation cycling (F), and drives the HUD:
+    /// Handles crosshair-based ally selection and order dispatch.
+    ///
+    /// Controls:
+    ///   - SPACE        — context-sensitive: select ally under crosshair, or
+    ///                    (with units selected) issue attack/move to target
+    ///                    under crosshair.
+    ///   - Shift+SPACE  — add hovered ally to selection.
+    ///   - Ctrl+SPACE   — toggle hovered ally in selection.
+    ///   - G / H        — order selected units to Follow / Hold.
+    ///   - F            — cycle formation (Wedge / Line / Column).
+    ///   - ESC          — deselect all (falls through to pause menu when
+    ///                    nothing is selected).
+    ///
+    /// Drives the HUD:
     ///   - Glowing terrain-preview ring that tracks the crosshair while units
     ///     are selected (green = move target, red = attack target).
     ///   - Row of unit-card icons along the top-left of the screen.
@@ -28,7 +40,6 @@ namespace HoverTank
         // ── Scene refs ───────────────────────────────────────────────────────
         private HoverTank     _player  = null!;
         private FollowCamera  _camera  = null!;
-        private WeaponManager _weapons = null!;
 
         // ── Terrain ring marker ──────────────────────────────────────────────
         private MeshInstance3D _ring       = null!;
@@ -69,36 +80,27 @@ namespace HoverTank
         {
             _player  = GetParent<HoverTank>();
             _camera  = _player.AimCamera!;
-            _weapons = _player.GetNode<WeaponManager>("WeaponManager");
 
             BuildRingMarker();
             BuildHUD();
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // Input — selection clicks
+        // Input — Escape intercept (deselect when selections exist)
         // ─────────────────────────────────────────────────────────────────────
 
         public override void _Input(InputEvent evt)
         {
-            // Only intercept clicks when the game has mouse focus (cursor captured).
             if (Input.MouseMode != Input.MouseModeEnum.Captured) return;
-            if (evt is not InputEventMouseButton mb) return;
-            if (!mb.Pressed || mb.ButtonIndex != MouseButton.Left) return;
+            if (evt is not InputEventKey key || !key.Pressed || key.Echo) return;
 
-            AllyAI? ally = RaycastForAlly();
-            if (ally == null) return;
-
-            if (mb.ShiftPressed)
-                AddToSelection(ally);
-            else if (mb.CtrlPressed)
-                ToggleSelection(ally);
-            else
-                SelectOnly(ally);
-
-            // Prevent the WeaponManager from treating this click as a fire event.
-            _weapons.SuppressFireThisFrame = true;
-            GetViewport().SetInputAsHandled();
+            // Escape: consume and deselect when there's an active selection so
+            // GameSetup's _UnhandledInput pause handler doesn't also fire.
+            if (evt.IsAction("unit_deselect_all") && _selected.Count > 0)
+            {
+                DeselectAll();
+                GetViewport().SetInputAsHandled();
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ namespace HoverTank
         {
             UpdateCrosshairState();
             UpdateFormationSlots();
+            ProcessSelectKey();
             ProcessOrderKeys();
             UpdateRingMarker((float)delta);
             RefreshHUD();
@@ -148,27 +151,6 @@ namespace HoverTank
                     _hoveredEnemy = t;
                 }
             }
-        }
-
-        // Separate raycast used inside _Input (runs before _Process updates
-        // _hoveredAlly, so we can't rely on the cached value there).
-        private AllyAI? RaycastForAlly()
-        {
-            if (_camera == null) return null;
-
-            var space  = GetWorld3D().DirectSpaceState;
-            var origin = _camera.GlobalPosition;
-            var end    = origin + (-_camera.GlobalBasis.Z) * 300f;
-            var query  = PhysicsRayQueryParameters3D.Create(origin, end);
-            query.Exclude = new Godot.Collections.Array<Rid> { _player.GetRid() };
-
-            var hit = space.IntersectRay(query);
-            if (hit.Count == 0) return null;
-
-            if (hit["collider"].AsGodotObject() is HoverTank t && t.IsFriendlyAI && t.Health > 0f)
-                return t.GetNodeOrNull<AllyAI>("AllyAI");
-
-            return null;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -232,6 +214,35 @@ namespace HoverTank
         // Order dispatch
         // ─────────────────────────────────────────────────────────────────────
 
+        // Context-sensitive SPACE: select hovered ally (with modifier variants),
+        // or issue attack/move to the crosshair target when units are selected.
+        private void ProcessSelectKey()
+        {
+            if (Input.MouseMode != Input.MouseModeEnum.Captured) return;
+            if (!Input.IsActionJustPressed("unit_select")) return;
+
+            // Pointing at an ally → selection action.
+            if (_hoveredAlly != null)
+            {
+                if (Input.IsKeyPressed(Key.Shift))
+                    AddToSelection(_hoveredAlly);
+                else if (Input.IsKeyPressed(Key.Ctrl))
+                    ToggleSelection(_hoveredAlly);
+                else
+                    SelectOnly(_hoveredAlly);
+                return;
+            }
+
+            // No ally under crosshair: issue a context-sensitive order if there
+            // are units selected. Enemy under crosshair → attack; otherwise move.
+            if (_selected.Count == 0) return;
+
+            if (_hoveredEnemy != null)
+                IssueAttackOrder();
+            else
+                IssueMoveOrder();
+        }
+
         private void ProcessOrderKeys()
         {
             if (_selected.Count == 0) return;
@@ -240,14 +251,8 @@ namespace HoverTank
                 IssueOrder(AllyAI.AllyOrder.Follow);
             else if (Input.IsActionJustPressed("unit_order_hold"))
                 IssueOrder(AllyAI.AllyOrder.Hold);
-            else if (Input.IsActionJustPressed("unit_order_move"))
-                IssueMoveOrder();
-            else if (Input.IsActionJustPressed("unit_order_attack"))
-                IssueAttackOrder();
             else if (Input.IsActionJustPressed("unit_formation_cycle"))
                 CycleFormation();
-            else if (Input.IsActionJustPressed("unit_deselect_all"))
-                DeselectAll();
         }
 
         private void IssueOrder(AllyAI.AllyOrder order)
@@ -303,23 +308,39 @@ namespace HoverTank
         // Formation slots
         // ─────────────────────────────────────────────────────────────────────
 
+        // Assign world-space formation slots to every ally in Follow order,
+        // regardless of whether they're currently selected. Previously slots
+        // were only refreshed for selected allies, so a follower that the
+        // player deselected would freeze at the last slot world-position
+        // instead of continuing to track the player.
         private void UpdateFormationSlots()
         {
             PruneDeadAllies();
-            if (_selected.Count == 0) return;
 
-            Vector3[] offsets = ComputeFormationOffsets(_selected.Count);
+            var followers = new List<AllyAI>();
+            foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
+            {
+                if (node is not HoverTank t) continue;
+                if (!t.IsFriendlyAI || t.Health <= 0f) continue;
+                var ai = t.GetNodeOrNull<AllyAI>("AllyAI");
+                if (ai == null) continue;
+                if (ai.CurrentOrder != AllyAI.AllyOrder.Follow) continue;
+                followers.Add(ai);
+            }
+            if (followers.Count == 0) return;
+
+            Vector3[] offsets = ComputeFormationOffsets(followers.Count);
             Vector3 playerFwd   = -_player.Basis.Z;
             Vector3 playerRight =  _player.Basis.X;
 
-            for (int i = 0; i < _selected.Count; i++)
+            for (int i = 0; i < followers.Count; i++)
             {
                 Vector3 off   = offsets[i];
                 // off.Z = depth behind player (positive = behind), off.X = lateral
                 Vector3 world = _player.GlobalPosition
                               - playerFwd  * off.Z
                               + playerRight * off.X;
-                _selected[i].FormationSlot = world;
+                followers[i].FormationSlot = world;
             }
         }
 
@@ -459,12 +480,13 @@ namespace HoverTank
             _actionBox.AddChild(heading);
 
             // Action rows: [KEY]  Description
+            // Row 0 is refreshed every frame based on crosshair context.
             string[] lines = {
-                "[G]  Follow me",
-                "[H]  Hold position",
-                "[V]  Move here",
-                "[B]  Attack target",
-                "[F]  Formation: Wedge",
+                "[SPACE] Move here",
+                "[G]      Follow me",
+                "[H]      Hold position",
+                "[F]      Formation: Wedge",
+                "[ESC]    Deselect all",
             };
             for (int i = 0; i < lines.Length; i++)
             {
@@ -485,17 +507,21 @@ namespace HoverTank
 
             if (!hasSelection) return;
 
-            // Update action-list label highlights
+            // Follow / Hold highlight based on active group order.
             HighlightActiveOrder();
 
-            // Update formation label
-            _actionLabels[4].Text = $"[F]  Formation: {_formation}";
+            // [SPACE] row reflects what pressing space right now would do.
+            (string spaceText, Color spaceColor) = _crosshairHit switch
+            {
+                CrosshairHit.Enemy => ("[SPACE] Attack target", new Color(1.0f, 0.30f, 0.25f)),
+                CrosshairHit.Ally  => ("[SPACE] Select ally",    new Color(0.30f, 0.85f, 1.0f)),
+                _                  => ("[SPACE] Move here",      new Color(0.25f, 0.95f, 0.40f)),
+            };
+            _actionLabels[0].Text = spaceText;
+            _actionLabels[0].AddThemeColorOverride("font_color", spaceColor);
 
-            // Dim [B] unless crosshair is on an enemy
-            _actionLabels[3].AddThemeColorOverride("font_color",
-                _crosshairHit == CrosshairHit.Enemy
-                    ? new Color(1.0f, 0.85f, 0.3f)
-                    : new Color(0.45f, 0.45f, 0.45f));
+            // Formation label.
+            _actionLabels[3].Text = $"[F]      Formation: {_formation}";
 
             // Refresh card health / status
             for (int i = 0; i < _cards.Count && i < _selected.Count; i++)
@@ -506,20 +532,24 @@ namespace HoverTank
         {
             var dim    = new Color(0.45f, 0.45f, 0.45f);
             var bright = new Color(1.0f,  0.90f, 0.30f);
+            var neutral = new Color(0.75f, 0.75f, 0.75f);
 
-            for (int i = 0; i < 4; i++)
-                _actionLabels[i].AddThemeColorOverride("font_color", dim);
+            // Follow (1), Hold (2) dim/bright based on active order.
+            _actionLabels[1].AddThemeColorOverride("font_color", dim);
+            _actionLabels[2].AddThemeColorOverride("font_color", dim);
 
             int active = _groupOrder switch
             {
-                AllyAI.AllyOrder.Follow         => 0,
-                AllyAI.AllyOrder.Hold           => 1,
-                AllyAI.AllyOrder.MoveToWaypoint => 2,
-                AllyAI.AllyOrder.AttackTarget   => 3,
-                _                              => -1,
+                AllyAI.AllyOrder.Follow => 1,
+                AllyAI.AllyOrder.Hold   => 2,
+                _                       => -1,
             };
             if (active >= 0)
                 _actionLabels[active].AddThemeColorOverride("font_color", bright);
+
+            // Formation + Deselect stay at neutral readable grey.
+            _actionLabels[3].AddThemeColorOverride("font_color", neutral);
+            _actionLabels[4].AddThemeColorOverride("font_color", neutral);
         }
 
         // ─────────────────────────────────────────────────────────────────────

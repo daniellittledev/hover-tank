@@ -56,8 +56,10 @@ namespace HoverTank
         }
 
         // ── Escape / pause ────────────────────────────────────────────────────
+        // Use _UnhandledInput so UnitCommander can consume Escape to deselect
+        // units without also triggering the pause menu.
 
-        public override void _Input(InputEvent evt)
+        public override void _UnhandledInput(InputEvent evt)
         {
             if (evt is InputEventKey key && key.Pressed && !key.Echo
                 && key.PhysicalKeycode == Key.Escape)

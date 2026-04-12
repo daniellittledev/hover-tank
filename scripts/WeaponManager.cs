@@ -95,10 +95,6 @@ namespace HoverTank
         // WeaponManager fires (respecting cooldown) then clears the flag.
         public bool AIFireRequested { get; set; }
 
-        // UnitCommander sets this to true when consuming a selection click so
-        // the same LMB event does not also trigger fire_weapon this frame.
-        public bool SuppressFireThisFrame { get; set; }
-
         // Directly selects a weapon and resets cooldown (used by EnemyAI on spawn).
         public void SelectWeapon(WeaponType weapon)
         {
@@ -183,21 +179,13 @@ namespace HoverTank
             if (Input.IsActionJustPressed(InputPrefix + "next_weapon"))
                 CycleWeapon(1);
 
-            // UnitCommander consumed this click for unit selection — skip fire.
-            if (SuppressFireThisFrame)
-            {
-                SuppressFireThisFrame = false;
-            }
-            else
-            {
-                // Minigun: hold to fire. Rockets & shells: tap to fire.
-                bool trigger = CurrentWeapon == WeaponType.MiniGun
-                    ? Input.IsActionPressed(InputPrefix + "fire_weapon")
-                    : Input.IsActionJustPressed(InputPrefix + "fire_weapon");
+            // Minigun: hold to fire. Rockets & shells: tap to fire.
+            bool trigger = CurrentWeapon == WeaponType.MiniGun
+                ? Input.IsActionPressed(InputPrefix + "fire_weapon")
+                : Input.IsActionJustPressed(InputPrefix + "fire_weapon");
 
-                if (trigger && _cooldown <= 0f)
-                    Fire();
-            }
+            if (trigger && _cooldown <= 0f)
+                Fire();
 
             // AI fire request — checked after player input so cooldown applies equally.
             // Minigun is stuttered into bursts via _aiMinigunBurst; rockets and
