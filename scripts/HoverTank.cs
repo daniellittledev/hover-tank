@@ -34,18 +34,13 @@ namespace HoverTank
         // Forward/back thrust force (Newtons) applied in the tank's local frame.
         [Export] public float ThrustForce = 200f;
 
-        // Yaw torque (N·m) applied around the world-up axis for turning.
-        [Export] public float TurnTorque = 80f;
-
         // Speed cap (m/s) in the thrust direction — prevents endless acceleration.
         [Export] public float MaxSpeed = 12f;
 
         // ── Angular drag ────────────────────────────────────────────────
-        // Counter-torque proportional to angular velocity, applied each physics
-        // tick.  Supplements the scene-level angular_damp (which only removes
-        // ~5 %/frame at 3.0) to kill unwanted spins quickly without fighting
-        // deliberate yaw from the auto-steer.
-        [Export] public float AngularDrag = 15f;
+        // Roll/pitch counter-torque only — kills tumbling from terrain jolts.
+        // Yaw damping is owned entirely by AutoSteerDamp in the PD controller.
+        [Export] public float TiltDrag = 30f;
 
         // ── Jump jets ───────────────────────────────────────────────────────
         // Instantaneous upward impulse (kg·m/s) on the first frame E is pressed.
@@ -174,8 +169,8 @@ namespace HoverTank
         // ── Auto-steer (Halo-style) ──────────────────────────────────────────
         // Proportional gain: torque per radian of yaw error.
         [Export] public float AutoSteerGain = 120f;
-        // Derivative gain: damps yaw oscillation.
-        [Export] public float AutoSteerDamp = 20f;
+        // Derivative gain: sole source of yaw damping (no separate angular drag on Y).
+        [Export] public float AutoSteerDamp = 65f;
 
         // ── Weapons ──────────────────────────────────────────────────────────
         public WeaponManager? Weapons { get; private set; }
@@ -240,7 +235,8 @@ namespace HoverTank
             ProcessHoverForces();
             ProcessMovement(_currentInput);
             ProcessJumpJets(_currentInput);
-            ApplyTorque(-AngularVelocity * AngularDrag);
+            var av = AngularVelocity;
+            ApplyTorque(new Vector3(-av.X * TiltDrag, 0f, -av.Z * TiltDrag));
 
             // Drive turret toward camera aim direction.
             if (_turret != null && AimCamera != null)
