@@ -49,10 +49,17 @@ namespace HoverTank
 
         // ── Jump jets ───────────────────────────────────────────────────────
         // Instantaneous upward impulse (kg·m/s) on the first frame E is pressed.
-        [Export] public float JumpImpulse = 8f;
+        [Export] public float JumpImpulse = 3f;
 
-        // Sustained upward force (N) each physics frame while E is held.
-        [Export] public float JumpSustainForce = 120f;
+        // Sustained upward force (N) at normal power.
+        // First second: 2× this value.  Depleted: 0.1× (sputter only).
+        [Export] public float JumpSustainForce = 20f;
+
+        // Seconds of continuous use before fuel hits zero (1 s max + 4 s normal).
+        [Export] public float JumpFuelDuration = 5f;
+
+        // Seconds to recharge from empty to full when jets are idle.
+        [Export] public float JumpRechargeTime = 4f;
 
         // ── Health ──────────────────────────────────────────────────────────
         public float MaxHealth = 100f;
@@ -181,6 +188,7 @@ namespace HoverTank
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
         private AudioStreamPlayer3D? _enginePlayer;
+        private float _jetFuel = 1f; // 0 = empty, 1 = full
 
         public override void _Ready()
         {
@@ -338,15 +346,37 @@ namespace HoverTank
         }
 
         // ────────────────────────────────────────────────────────────────────
-        // Jump jets: initial burst impulse on keydown + sustained force while held.
+        // Jump jets: fuel-based power curve.
+        //
+        // Fuel drains linearly while E is held; recharges when released.
+        //   fuel > 0.8  →  first ~1 s of use  →  2× force  (max power)
+        //   fuel > 0    →  next ~4 s of use   →  1× force  (normal)
+        //   fuel == 0   →  depleted            →  0.1× force (sputter)
+        //
+        // At JumpFuelDuration=5 s drain rate = 0.2/s, so full→0.8 takes
+        // exactly 1 s. Recharge at JumpRechargeTime=4 s is faster than drain.
         // ────────────────────────────────────────────────────────────────────
         private void ProcessJumpJets(TankInput input)
         {
-            if (input.JumpJustPressed)
-                ApplyCentralImpulse(Vector3.Up * JumpImpulse);
+            float dt = (float)GetPhysicsProcessDeltaTime();
 
             if (input.JumpJet)
-                ApplyCentralForce(Vector3.Up * JumpSustainForce);
+            {
+                float fuelBefore = _jetFuel;
+                _jetFuel = Mathf.Max(0f, _jetFuel - dt / JumpFuelDuration);
+
+                if (input.JumpJustPressed && fuelBefore > 0f)
+                    ApplyCentralImpulse(Vector3.Up * JumpImpulse);
+
+                float power = _jetFuel > 0.8f ? 2.0f
+                            : _jetFuel > 0f   ? 1.0f
+                            :                   0.1f;
+                ApplyCentralForce(Vector3.Up * JumpSustainForce * power);
+            }
+            else
+            {
+                _jetFuel = Mathf.Min(1f, _jetFuel + dt / JumpRechargeTime);
+            }
         }
 
         // Called during client reconciliation: applies input forces without hover
