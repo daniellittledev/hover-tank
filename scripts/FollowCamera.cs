@@ -193,12 +193,12 @@ namespace HoverTank
             // The hull's own auto-steer PD (HoverTank.ProcessMovement) then pulls
             // the hull toward CurrentYaw at its natural turn rate, so leaning on
             // the edge of the cone drags the tank around Battlezone-style.
-            if (_mode == ViewMode.FirstPerson && _tank != null)
+            if (_mode == ViewMode.FirstPerson)
             {
                 float hullYaw = Mathf.Atan2(_tank.Basis.Z.X, _tank.Basis.Z.Z);
-                float delta   = MathUtils.AngleDiff(CurrentYaw, hullYaw);
-                delta         = Mathf.Clamp(delta, -FpsYawConeHalfWidth, FpsYawConeHalfWidth);
-                CurrentYaw    = MathUtils.WrapAngle(hullYaw + delta);
+                float yawDelta = MathUtils.AngleDiff(CurrentYaw, hullYaw);
+                yawDelta       = Mathf.Clamp(yawDelta, -FpsYawConeHalfWidth, FpsYawConeHalfWidth);
+                CurrentYaw     = MathUtils.WrapAngle(hullYaw + yawDelta);
             }
 
             // Spring-follow the orbit centre so sudden tank jolts don't snap the camera.
