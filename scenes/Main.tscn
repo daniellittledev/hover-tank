@@ -27,11 +27,16 @@ tonemap_mode = 2
 tonemap_exposure = 0.9
 ssao_enabled = true
 ssao_radius = 1.0
-ssao_intensity = 2.0
+ssao_intensity = 1.0
 glow_enabled = true
 glow_intensity = 0.25
-glow_bloom = 0.05
+glow_bloom = 0.02
 glow_blend_mode = 1
+fog_enabled = true
+fog_light_color = Color(0.62, 0.70, 0.80, 1)
+fog_light_energy = 0.5
+fog_density = 0.003
+fog_aerial_perspective = 0.6
 
 [node name="Main" type="Node3D"]
 script = ExtResource("4_gamesetup")

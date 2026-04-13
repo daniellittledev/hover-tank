@@ -578,22 +578,23 @@ namespace HoverTank
         private StandardMaterial3D CreateMetallicGridMaterial()
         {
             const int size      = 128;
-            const int lineWidth = 8;
+            const int lineWidth = 2;
 
             var img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
             var silver = new Color(0.88f, 0.89f, 0.92f);
             img.Fill(silver);
 
-            // Draw black border lines on all four edges — when tiled at 1 tile
-            // per cell this produces a continuous grid across the terrain.
+            // Draw dark-grey hairline borders — when tiled at 1 tile per cell
+            // this produces a subtle panel-seam grid across the terrain.
+            var lineColor = new Color(0.20f, 0.22f, 0.25f);
             for (int i = 0; i < size; i++)
             {
                 for (int w = 0; w < lineWidth; w++)
                 {
-                    img.SetPixel(i, w,              Colors.Black);
-                    img.SetPixel(i, size - 1 - w,   Colors.Black);
-                    img.SetPixel(w, i,              Colors.Black);
-                    img.SetPixel(size - 1 - w, i,   Colors.Black);
+                    img.SetPixel(i, w,              lineColor);
+                    img.SetPixel(i, size - 1 - w,   lineColor);
+                    img.SetPixel(w, i,              lineColor);
+                    img.SetPixel(size - 1 - w, i,   lineColor);
                 }
             }
             img.GenerateMipmaps();
