@@ -531,9 +531,9 @@ namespace HoverTank
                     float lx = x * CellSize;
                     float lz = z * CellSize;
                     positions[i] = new Vector3(lx, heights[x, z], lz);
-                    // World-space-integer UVs = 1 tile per cell.
-                    // Use world coords so grid aligns across chunk boundaries.
-                    uvs[i] = new Vector2((baseX + lx) / CellSize, (baseZ + lz) / CellSize);
+                    // 2 tiles per cell — denser panel grid matching the reference.
+                    // Use world coords so grid aligns seamlessly across chunk boundaries.
+                    uvs[i] = new Vector2((baseX + lx) / (CellSize * 0.5f), (baseZ + lz) / (CellSize * 0.5f));
 
                     // Central-difference normal, sampling neighbours in world
                     // space so interior-chunk values match edge-chunk values.
