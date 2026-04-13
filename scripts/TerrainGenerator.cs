@@ -580,7 +580,7 @@ namespace HoverTank
             const int size      = 128;
             const int lineWidth = 8;
 
-            var img = Image.Create(size, size, false, Image.Format.Rgba8);
+            var img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
             var silver = new Color(0.88f, 0.89f, 0.92f);
             img.Fill(silver);
 
