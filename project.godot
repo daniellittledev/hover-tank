@@ -18,8 +18,8 @@ config/name="HoverTank"
 config/description="Battlezone-style hover tank game"
 config/version="0.1.0"
 run/main_scene="res://scenes/MainMenu.tscn"
-run/max_fps=60
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
+run/max_fps=60
 
 [autoload]
 

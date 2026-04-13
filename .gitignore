@@ -22,3 +22,5 @@ project.nuget.props
 Thumbs.db
 desktop.ini
 ehthumbs.db
+
+.claude/worktrees/
