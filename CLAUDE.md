@@ -9,11 +9,10 @@ Godot 4.3 C# game — Battlezone-style hover tank on procedurally generated crat
 | Path | Purpose |
 |------|---------|
 | `scripts/HoverTank.cs` | Hover spring-damper, WASD movement, jump jets |
-| `scripts/TerrainGenerator.cs` | Heightmap loader, crater carver, mesh + collision |
+| `scripts/TerrainGenerator.cs` | Procedural noise heightmap, crater carver, mesh + collision. Optional float32 custom map via `CustomMapPath` |
 | `scripts/FollowCamera.cs` | Lag-smoothed follow camera |
 | `scenes/Main.tscn` | World root: sky, sun, terrain, tank instance |
 | `scenes/HoverTank.tscn` | Tank scene: body, turret, 9 hover raycasts (3×3 grid), camera mount |
-| `terrain/heightmap.png` | 128×128 grayscale base terrain |
 | `project.godot` | Project config and input map |
 
 ## Weapons design notes
