@@ -40,6 +40,14 @@ namespace HoverTank
         [Export] public float CraterRadiusMax = 18f;
         [Export] public float CraterDepth = 2.5f;
 
+        // ── Smoothing ───────────────────────────────────────────────────────
+        // Number of 3×3 box-blur passes applied to the base height array
+        // before crater carving. The 8-bit heightmap PNG quantises heights
+        // into 256 steps, producing visible faceting on the final mesh;
+        // smoothing averages neighbours to remove that stair-step artefact
+        // while leaving crater rims sharp (craters are carved afterwards).
+        [Export] public int SmoothingIterations = 3;
+
         // ── Heightmap file ──────────────────────────────────────────────────
         [Export] public string HeightmapPath = "res://terrain/heightmap.png";
 
@@ -98,10 +106,13 @@ namespace HoverTank
             else
                 GenerateNoiseHeights(heights, verts);
 
-            // ── Step 2: carve craters ───────────────────────────────────────
+            // ── Step 2: smooth base heights to remove PNG quantisation steps
+            SmoothHeights(heights, verts, SmoothingIterations);
+
+            // ── Step 3: carve craters ───────────────────────────────────────
             CarveCraters(heights, verts, origin);
 
-            // ── Step 3: build mesh ──────────────────────────────────────────
+            // ── Step 4: build mesh ──────────────────────────────────────────
             var mesh = BuildMesh(heights, verts, origin);
 
             var meshInst = new MeshInstance3D { Mesh = mesh };
@@ -114,7 +125,7 @@ namespace HoverTank
             meshInst.SetSurfaceOverrideMaterial(0, mat);
             AddChild(meshInst);
 
-            // ── Step 4: physics collision via HeightMapShape3D ──────────────
+            // ── Step 5: physics collision via HeightMapShape3D ──────────────
             // HeightMapShape3D expects a flat Godot float[] of size W*D,
             // row-major (x varies fastest). Origin of the shape is its centre.
             var mapData = new float[verts * verts];
@@ -137,7 +148,7 @@ namespace HoverTank
             staticBody.AddChild(colShape);
             AddChild(staticBody);
 
-            // ── Step 5: invisible edge barriers ────────────────────────────
+            // ── Step 6: invisible edge barriers ────────────────────────────
             CreateEdgeBarriers(worldSize);
         }
 
@@ -234,6 +245,37 @@ namespace HoverTank
             for (int z = 0; z < verts; z++)
                 for (int x = 0; x < verts; x++)
                     heights[x, z] = (noise.GetNoise2D(x, z) * 0.5f + 0.5f) * HeightScale;
+        }
+
+        // ── Height smoothing ────────────────────────────────────────────────
+        // In-place 3×3 box blur, repeated `iterations` times. Edge samples
+        // clamp to the grid bounds (only in-range neighbours contribute) so
+        // the terrain perimeter stays anchored near its original height.
+        private static void SmoothHeights(float[,] heights, int verts, int iterations)
+        {
+            if (iterations <= 0) return;
+
+            var tmp = new float[verts, verts];
+            for (int iter = 0; iter < iterations; iter++)
+            {
+                for (int z = 0; z < verts; z++)
+                {
+                    int z0 = Math.Max(z - 1, 0);
+                    int z1 = Math.Min(z + 1, verts - 1);
+                    for (int x = 0; x < verts; x++)
+                    {
+                        int x0 = Math.Max(x - 1, 0);
+                        int x1 = Math.Min(x + 1, verts - 1);
+
+                        float sum =
+                            heights[x0, z0] + heights[x, z0] + heights[x1, z0] +
+                            heights[x0, z ] + heights[x, z ] + heights[x1, z ] +
+                            heights[x0, z1] + heights[x, z1] + heights[x1, z1];
+                        tmp[x, z] = sum / 9f;
+                    }
+                }
+                Array.Copy(tmp, heights, verts * verts);
+            }
         }
 
         // ── Crater carving ──────────────────────────────────────────────────
