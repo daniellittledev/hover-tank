@@ -10,13 +10,12 @@ namespace HoverTank
     ///
     /// Two modes:
     ///   • Standard (default): a single finite cratered heightmap, edge-walled,
-    ///     used by StandardWaves / multiplayer / split-screen.
+    ///     used by StandardWaves / multiplayer / split-screen. Heights are
+    ///     generated from fractal noise; set <see cref="CustomMapPath"/> to
+    ///     override with a packed float32 heightmap file.
     ///   • TestDrive: infinite chunk-streamed terrain with a shiny metallic
     ///     grid material and lots of rolling hills / sharp jump bumps. Selected
     ///     automatically when GameState.SinglePlayerMode == TestDrive.
-    ///
-    /// Replace terrain/heightmap.png with any 8-bit grayscale PNG to customise
-    /// the standard-mode base terrain shape.
     /// </summary>
     public partial class TerrainGenerator : Node3D
     {
@@ -28,10 +27,10 @@ namespace HoverTank
         [Export] public float CellSize = 2.0f;
 
         // ── Heights ─────────────────────────────────────────────────────────
-        // Multiplier applied to the normalised heightmap/noise values.
+        // Multiplier applied to the normalised noise values (range 0..1).
         [Export] public float HeightScale = 4.0f;
 
-        // Noise seed — only used when the heightmap PNG is not found.
+        // Seed for the fractal noise used when no custom map is loaded.
         [Export] public int NoiseSeed = 42;
 
         // ── Craters ─────────────────────────────────────────────────────────
@@ -40,16 +39,12 @@ namespace HoverTank
         [Export] public float CraterRadiusMax = 18f;
         [Export] public float CraterDepth = 2.5f;
 
-        // ── Smoothing ───────────────────────────────────────────────────────
-        // Number of 3×3 box-blur passes applied to the base height array
-        // before crater carving. The 8-bit heightmap PNG quantises heights
-        // into 256 steps, producing visible faceting on the final mesh;
-        // smoothing averages neighbours to remove that stair-step artefact
-        // while leaving crater rims sharp (craters are carved afterwards).
-        [Export] public int SmoothingIterations = 3;
-
-        // ── Heightmap file ──────────────────────────────────────────────────
-        [Export] public string HeightmapPath = "res://terrain/heightmap.png";
+        // ── Optional custom heightmap ───────────────────────────────────────
+        // Path to a packed little-endian float32 heightmap: exactly
+        // (GridSize+1)² values, row-major (x varies fastest), in metres of
+        // world height (not scaled by HeightScale). Leave empty to use
+        // procedural noise. Intended for future hand-authored campaign maps.
+        [Export] public string CustomMapPath = "";
 
         // ── TestDrive infinite-chunk streaming ──────────────────────────────
         // Cells per chunk side. Chunk world size = ChunkCells * CellSize.
@@ -100,19 +95,13 @@ namespace HoverTank
             // ── Step 1: build base height array ────────────────────────────
             float[,] heights = new float[verts, verts];
 
-            var img = TryLoadHeightmapImage();
-            if (img != null)
-                SampleImageHeights(img, heights, verts);
-            else
+            if (!TryLoadCustomHeightmap(heights, verts))
                 GenerateNoiseHeights(heights, verts);
 
-            // ── Step 2: smooth base heights to remove PNG quantisation steps
-            SmoothHeights(heights, verts, SmoothingIterations);
-
-            // ── Step 3: carve craters ───────────────────────────────────────
+            // ── Step 2: carve craters ───────────────────────────────────────
             CarveCraters(heights, verts, origin);
 
-            // ── Step 4: build mesh ──────────────────────────────────────────
+            // ── Step 3: build mesh ──────────────────────────────────────────
             var mesh = BuildMesh(heights, verts, origin);
 
             var meshInst = new MeshInstance3D { Mesh = mesh };
@@ -125,7 +114,7 @@ namespace HoverTank
             meshInst.SetSurfaceOverrideMaterial(0, mat);
             AddChild(meshInst);
 
-            // ── Step 5: physics collision via HeightMapShape3D ──────────────
+            // ── Step 4: physics collision via HeightMapShape3D ──────────────
             // HeightMapShape3D expects a flat Godot float[] of size W*D,
             // row-major (x varies fastest). Origin of the shape is its centre.
             var mapData = new float[verts * verts];
@@ -148,7 +137,7 @@ namespace HoverTank
             staticBody.AddChild(colShape);
             AddChild(staticBody);
 
-            // ── Step 6: invisible edge barriers ────────────────────────────
+            // ── Step 5: invisible edge barriers ────────────────────────────
             CreateEdgeBarriers(worldSize);
         }
 
@@ -186,51 +175,31 @@ namespace HoverTank
             }
         }
 
-        // ── Height source: PNG image ────────────────────────────────────────
-        private Image? TryLoadHeightmapImage()
+        // ── Height source: custom binary float heightmap ───────────────────
+        // Expected format: (verts × verts) little-endian float32 values,
+        // row-major (x fastest), no header. Heights are stored in world
+        // metres — HeightScale is NOT applied. Returns false if the file is
+        // missing, unreadable, or the wrong size.
+        private bool TryLoadCustomHeightmap(float[,] heights, int verts)
         {
-            if (!GFileAccess.FileExists(HeightmapPath)) return null;
+            if (string.IsNullOrEmpty(CustomMapPath)) return false;
+            if (!GFileAccess.FileExists(CustomMapPath)) return false;
 
-            var img = Image.LoadFromFile(HeightmapPath);
-            if (img == null || img.IsEmpty()) return null;
+            using var file = GFileAccess.Open(CustomMapPath, GFileAccess.ModeFlags.Read);
+            if (file == null) return false;
 
-            img.Convert(Image.Format.L8); // ensure 8-bit grayscale
-            return img;
-        }
-
-        private void SampleImageHeights(Image img, float[,] heights, int verts)
-        {
-            int imgW = img.GetWidth();
-            int imgH = img.GetHeight();
+            long expectedBytes = (long)verts * verts * sizeof(float);
+            if ((long)file.GetLength() < expectedBytes)
+            {
+                GD.PushWarning($"CustomMapPath '{CustomMapPath}' is smaller than the required {expectedBytes} bytes for a {verts}×{verts} heightmap — falling back to procedural noise.");
+                return false;
+            }
 
             for (int z = 0; z < verts; z++)
-            {
                 for (int x = 0; x < verts; x++)
-                {
-                    // Bilinear sample from image to grid
-                    float u = (float)x / (verts - 1) * (imgW - 1);
-                    float v = (float)z / (verts - 1) * (imgH - 1);
-                    int ix = (int)u;
-                    int iz = (int)v;
-                    float fu = u - ix;
-                    float fv = v - iz;
+                    heights[x, z] = file.GetFloat();
 
-                    int ix1 = Math.Min(ix + 1, imgW - 1);
-                    int iz1 = Math.Min(iz + 1, imgH - 1);
-
-                    float h00 = img.GetPixel(ix,  iz ).R;
-                    float h10 = img.GetPixel(ix1, iz ).R;
-                    float h01 = img.GetPixel(ix,  iz1).R;
-                    float h11 = img.GetPixel(ix1, iz1).R;
-
-                    float h = h00 * (1 - fu) * (1 - fv)
-                            + h10 * fu       * (1 - fv)
-                            + h01 * (1 - fu) * fv
-                            + h11 * fu       * fv;
-
-                    heights[x, z] = h * HeightScale;
-                }
-            }
+            return true;
         }
 
         private void GenerateNoiseHeights(float[,] heights, int verts)
@@ -245,37 +214,6 @@ namespace HoverTank
             for (int z = 0; z < verts; z++)
                 for (int x = 0; x < verts; x++)
                     heights[x, z] = (noise.GetNoise2D(x, z) * 0.5f + 0.5f) * HeightScale;
-        }
-
-        // ── Height smoothing ────────────────────────────────────────────────
-        // In-place 3×3 box blur, repeated `iterations` times. Edge samples
-        // clamp to the grid bounds (only in-range neighbours contribute) so
-        // the terrain perimeter stays anchored near its original height.
-        private static void SmoothHeights(float[,] heights, int verts, int iterations)
-        {
-            if (iterations <= 0) return;
-
-            var tmp = new float[verts, verts];
-            for (int iter = 0; iter < iterations; iter++)
-            {
-                for (int z = 0; z < verts; z++)
-                {
-                    int z0 = Math.Max(z - 1, 0);
-                    int z1 = Math.Min(z + 1, verts - 1);
-                    for (int x = 0; x < verts; x++)
-                    {
-                        int x0 = Math.Max(x - 1, 0);
-                        int x1 = Math.Min(x + 1, verts - 1);
-
-                        float sum =
-                            heights[x0, z0] + heights[x, z0] + heights[x1, z0] +
-                            heights[x0, z ] + heights[x, z ] + heights[x1, z ] +
-                            heights[x0, z1] + heights[x, z1] + heights[x1, z1];
-                        tmp[x, z] = sum / 9f;
-                    }
-                }
-                Array.Copy(tmp, heights, verts * verts);
-            }
         }
 
         // ── Crater carving ──────────────────────────────────────────────────

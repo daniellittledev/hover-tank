@@ -136,4 +136,6 @@ Sounds are 3D-attenuated; each tank carries its own engine `AudioStreamPlayer3D`
 
 ## Customising Terrain
 
-Replace `terrain/heightmap.png` with any 8-bit grayscale PNG. Brighter pixels = higher ground. The terrain generator carves craters on top at runtime — tweak counts and depth via the `Terrain` node's exported properties in the Godot editor.
+Terrain is fully procedural — tweak `NoiseSeed`, `CraterCount`, `CraterDepth`, `HeightScale`, etc. on the `Terrain` node in the Godot editor.
+
+For hand-authored campaign maps, point `CustomMapPath` at a packed float32 heightmap: exactly `(GridSize+1)²` little-endian float values, row-major (x fastest), heights in world metres. Leave `CustomMapPath` empty to use noise.
