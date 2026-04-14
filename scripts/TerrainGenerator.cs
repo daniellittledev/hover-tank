@@ -28,7 +28,7 @@ namespace HoverTank
 
         // ── Heights ─────────────────────────────────────────────────────────
         // Multiplier applied to the normalised noise values (range 0..1).
-        [Export] public float HeightScale = 4.0f;
+        [Export] public float HeightScale = 12.0f;
 
         // Seed for the fractal noise used when no custom map is loaded.
         [Export] public int NoiseSeed = 42;
@@ -53,9 +53,9 @@ namespace HoverTank
         // Total loaded chunks = (2*ChunkLoadRadius+1)^2.
         [Export] public int ChunkLoadRadius = 3;
         // Amplitude of TestDrive rolling hills (metres).
-        [Export] public float InfiniteHillScale = 10f;
+        [Export] public float InfiniteHillScale = 22f;
         // Amplitude of sharp asymmetric bumps (jumps) added on top.
-        [Export] public float InfiniteJumpScale = 6f;
+        [Export] public float InfiniteJumpScale = 3f;
 
         // Runtime state for infinite mode.
         private bool _infiniteMode;
@@ -97,6 +97,11 @@ namespace HoverTank
 
             if (!TryLoadCustomHeightmap(heights, verts))
                 GenerateNoiseHeights(heights, verts);
+
+            // Smooth the base terrain to reduce quad planarity deviation,
+            // which suppresses the triangle-seam artefact. Done before crater
+            // carving so crater rims remain crisp.
+            SmoothHeights(heights, verts, 2);
 
             // ── Step 2: carve craters ───────────────────────────────────────
             CarveCraters(heights, verts, origin);
@@ -206,14 +211,46 @@ namespace HoverTank
         {
             var noise = new FastNoiseLite();
             noise.Seed = NoiseSeed;
-            noise.Frequency = 0.025f;
+            noise.Frequency = 0.010f;       // lower = broader, more gradual hills
             noise.FractalOctaves = 4;
-            noise.FractalGain = 0.5f;
+            noise.FractalGain = 0.40f;      // less weight on high-frequency octaves
             noise.FractalLacunarity = 2.0f;
 
             for (int z = 0; z < verts; z++)
                 for (int x = 0; x < verts; x++)
                     heights[x, z] = (noise.GetNoise2D(x, z) * 0.5f + 0.5f) * HeightScale;
+        }
+
+        // Box-blur the height field to smooth high-frequency noise before mesh
+        // construction. Reduces the planarity deviation within each quad, which
+        // visually suppresses triangle-seam artefacts under specular lighting.
+        private static void SmoothHeights(float[,] heights, int verts, int passes)
+        {
+            var tmp = new float[verts, verts];
+            for (int pass = 0; pass < passes; pass++)
+            {
+                for (int z = 0; z < verts; z++)
+                {
+                    for (int x = 0; x < verts; x++)
+                    {
+                        float sum = 0f;
+                        int count = 0;
+                        for (int dz = -1; dz <= 1; dz++)
+                        {
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int nx = x + dx, nz = z + dz;
+                                if ((uint)nx < (uint)verts && (uint)nz < (uint)verts)
+                                { sum += heights[nx, nz]; count++; }
+                            }
+                        }
+                        tmp[x, z] = sum / count;
+                    }
+                }
+                for (int z = 0; z < verts; z++)
+                    for (int x = 0; x < verts; x++)
+                        heights[x, z] = tmp[x, z];
+            }
         }
 
         // ── Crater carving ──────────────────────────────────────────────────
@@ -287,7 +324,10 @@ namespace HoverTank
                 }
             }
 
-            // Indices (two triangles per quad)
+            // Indices — per-quad diagonal selection.
+            // Choosing the diagonal whose endpoints differ least in height
+            // creates the most planar triangle pair for that quad, which
+            // breaks up the uniform diagonal-line artefact under specular light.
             int idx = 0;
             for (int z = 0; z < GridSize; z++)
             {
@@ -298,8 +338,19 @@ namespace HoverTank
                     int bl = (z + 1) * verts + x;
                     int br = bl + 1;
 
-                    indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
-                    indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+                    if (MathF.Abs(heights[x, z] - heights[x + 1, z + 1]) <=
+                        MathF.Abs(heights[x + 1, z] - heights[x, z + 1]))
+                    {
+                        // TL–BR diagonal
+                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = br;
+                        indices[idx++] = tl; indices[idx++] = br; indices[idx++] = bl;
+                    }
+                    else
+                    {
+                        // TR–BL diagonal
+                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
+                        indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+                    }
                 }
             }
 
@@ -345,15 +396,15 @@ namespace HoverTank
             _hillNoise = new FastNoiseLite
             {
                 Seed              = NoiseSeed,
-                Frequency         = 0.012f,
+                Frequency         = 0.007f,   // lower = wider, more gradual hills
                 FractalOctaves    = 4,
-                FractalGain       = 0.5f,
+                FractalGain       = 0.40f,    // less high-frequency octave weight
                 FractalLacunarity = 2.0f,
             };
             _jumpNoise = new FastNoiseLite
             {
                 Seed              = NoiseSeed + 1,
-                Frequency         = 0.05f,
+                Frequency         = 0.025f,   // lower = fewer, more spread-out bumps
                 FractalOctaves    = 2,
                 FractalGain       = 0.4f,
                 FractalLacunarity = 2.2f,
@@ -515,15 +566,16 @@ namespace HoverTank
                     // Use world coords so grid aligns seamlessly across chunk boundaries.
                     uvs[i] = new Vector2((baseX + lx) / (CellSize * 0.5f), (baseZ + lz) / (CellSize * 0.5f));
 
-                    // Central-difference normal, sampling neighbours in world
-                    // space so interior-chunk values match edge-chunk values.
+                    // Wide central-difference normal (±2 cells). Larger stencil
+                    // averages out high-frequency noise, giving smoother normals
+                    // that reduce the triangle-seam artefact under specular light.
                     float wx = baseX + lx;
                     float wz = baseZ + lz;
-                    float hL = SampleHeight(wx - CellSize, wz);
-                    float hR = SampleHeight(wx + CellSize, wz);
-                    float hD = SampleHeight(wx, wz - CellSize);
-                    float hU = SampleHeight(wx, wz + CellSize);
-                    normals[i] = new Vector3(hL - hR, 2f * CellSize, hD - hU).Normalized();
+                    float hL = SampleHeight(wx - 2f * CellSize, wz);
+                    float hR = SampleHeight(wx + 2f * CellSize, wz);
+                    float hD = SampleHeight(wx, wz - 2f * CellSize);
+                    float hU = SampleHeight(wx, wz + 2f * CellSize);
+                    normals[i] = new Vector3(hL - hR, 4f * CellSize, hD - hU).Normalized();
                 }
             }
 
@@ -536,8 +588,18 @@ namespace HoverTank
                     int tr = tl + 1;
                     int bl = (z + 1) * verts + x;
                     int br = bl + 1;
-                    indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
-                    indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+
+                    if (MathF.Abs(heights[x, z] - heights[x + 1, z + 1]) <=
+                        MathF.Abs(heights[x + 1, z] - heights[x, z + 1]))
+                    {
+                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = br;
+                        indices[idx++] = tl; indices[idx++] = br; indices[idx++] = bl;
+                    }
+                    else
+                    {
+                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
+                        indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+                    }
                 }
             }
 
@@ -585,8 +647,8 @@ namespace HoverTank
                 AlbedoTexture    = tex,
                 TextureFilter    = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
                 Metallic         = 1.0f,
-                MetallicSpecular = 1.0f,
-                Roughness        = 0.18f,
+                MetallicSpecular = 0.5f,    // was 1.0 — reduces peak highlight intensity
+                Roughness        = 0.38f,   // was 0.18 — broader, softer specular lobes
             };
         }
     }
