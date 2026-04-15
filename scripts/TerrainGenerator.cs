@@ -13,9 +13,9 @@ namespace HoverTank
     ///     used by StandardWaves / multiplayer / split-screen. Heights are
     ///     generated from fractal noise; set <see cref="CustomMapPath"/> to
     ///     override with a packed float32 heightmap file.
-    ///   • TestDrive: infinite chunk-streamed terrain with a shiny metallic
-    ///     grid material and lots of rolling hills / sharp jump bumps. Selected
-    ///     automatically when GameState.SinglePlayerMode == TestDrive.
+    ///   • TestDrive: infinite chunk-streamed terrain — gentle rolling dunes
+    ///     under a matte panel-grid material. Selected automatically when
+    ///     GameState.SinglePlayerMode == TestDrive.
     /// </summary>
     public partial class TerrainGenerator : Node3D
     {
@@ -54,13 +54,10 @@ namespace HoverTank
         [Export] public int ChunkLoadRadius = 3;
         // Amplitude of TestDrive rolling hills (metres).
         [Export] public float InfiniteHillScale = 22f;
-        // Amplitude of sharp asymmetric bumps (jumps) added on top.
-        [Export] public float InfiniteJumpScale = 3f;
 
         // Runtime state for infinite mode.
         private bool _infiniteMode;
         private FastNoiseLite _hillNoise = null!;
-        private FastNoiseLite _jumpNoise = null!;
         private StandardMaterial3D _infiniteMaterial = null!;
         private readonly Dictionary<(int, int), Node3D> _chunks = new();
         private (int, int) _lastCenterChunk = (int.MinValue, int.MinValue);
@@ -68,7 +65,7 @@ namespace HoverTank
 
         public override void _Ready()
         {
-            // TestDrive = infinite procedural sandbox with metallic grid surface.
+            // TestDrive = infinite procedural sandbox with matte panel-grid surface.
             var gs = GameState.Instance;
             _infiniteMode = gs != null
                 && gs.Mode == GameMode.SinglePlayer
@@ -397,20 +394,12 @@ namespace HoverTank
             {
                 Seed              = NoiseSeed,
                 Frequency         = 0.007f,   // lower = wider, more gradual hills
-                FractalOctaves    = 4,
-                FractalGain       = 0.40f,    // less high-frequency octave weight
+                FractalOctaves    = 3,        // fewer octaves = no fine-grain ripples
+                FractalGain       = 0.35f,    // less high-frequency octave weight
                 FractalLacunarity = 2.0f,
             };
-            _jumpNoise = new FastNoiseLite
-            {
-                Seed              = NoiseSeed + 1,
-                Frequency         = 0.025f,   // lower = fewer, more spread-out bumps
-                FractalOctaves    = 2,
-                FractalGain       = 0.4f,
-                FractalLacunarity = 2.2f,
-            };
 
-            _infiniteMaterial = CreateMetallicGridMaterial();
+            _infiniteMaterial = CreatePanelGridMaterial();
 
             // Pre-build a block of chunks around the origin so the player tank
             // (spawned after the terrain's _Ready) has solid ground under it on
@@ -421,17 +410,10 @@ namespace HoverTank
             _lastCenterChunk = (0, 0);
         }
 
-        // Combined hill + jump height at world (x, z).
-        //   • Rolling hills: symmetric fractal noise, large amplitude.
-        //   • Jumps: asymmetric bumps (only the positive half of a second noise
-        //     layer, squared) — produces ground-level flats broken up by sharp
-        //     mounds that launch the tank at speed.
+        // Symmetric fractal-noise rolling dunes at world (x, z).
         private float SampleHeight(float wx, float wz)
         {
-            float hill = _hillNoise.GetNoise2D(wx, wz) * InfiniteHillScale;
-            float j    = _jumpNoise.GetNoise2D(wx, wz);
-            float jump = j > 0f ? j * j * InfiniteJumpScale : 0f;
-            return hill + jump;
+            return _hillNoise.GetNoise2D(wx, wz) * InfiniteHillScale;
         }
 
         // Player movement → chunk rebalance. Only runs when the player crosses
@@ -615,9 +597,9 @@ namespace HoverTank
             return mesh;
         }
 
-        // Procedurally-generated shiny metallic grid texture. One texture is
+        // Procedurally-generated matte panel-grid texture. One texture is
         // shared across every chunk; UVs are set so exactly one tile = one cell.
-        private StandardMaterial3D CreateMetallicGridMaterial()
+        private StandardMaterial3D CreatePanelGridMaterial()
         {
             const int size      = 128;
             const int lineWidth = 2;
@@ -642,13 +624,13 @@ namespace HoverTank
             img.GenerateMipmaps();
             var tex = ImageTexture.CreateFromImage(img);
 
+            // Matte: Metallic=0 + high Roughness → diffuse only, no specular hotspot.
             return new StandardMaterial3D
             {
-                AlbedoTexture    = tex,
-                TextureFilter    = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
-                Metallic         = 1.0f,
-                MetallicSpecular = 0.5f,    // was 1.0 — reduces peak highlight intensity
-                Roughness        = 0.38f,   // was 0.18 — broader, softer specular lobes
+                AlbedoTexture = tex,
+                TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
+                Metallic      = 0.0f,
+                Roughness     = 0.85f,
             };
         }
     }
