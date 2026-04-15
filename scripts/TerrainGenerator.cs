@@ -393,7 +393,7 @@ namespace HoverTank
             _hillNoise = new FastNoiseLite
             {
                 Seed              = NoiseSeed,
-                Frequency         = 0.007f,   // lower = wider, more gradual hills
+                Frequency         = 0.0105f,  // lower = wider, more gradual hills
                 FractalOctaves    = 3,        // fewer octaves = no fine-grain ripples
                 FractalGain       = 0.35f,    // less high-frequency octave weight
                 FractalLacunarity = 2.0f,
