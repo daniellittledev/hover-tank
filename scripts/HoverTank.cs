@@ -192,6 +192,43 @@ namespace HoverTank
         // Stiffness of the torque that drives actual yaw rate to the commanded rate.
         [Export] public float AutoSteerDamp = 65f;
 
+        // ── Aim-driven body pitch ────────────────────────────────────────────
+        // The hull tilts toward where the player looks so the gun (hull -Z)
+        // elevates with the aim — previously only the camera pitched and the hull
+        // stayed level. Two mechanisms cooperate:
+        //
+        //   • Grounded: bias each hover ray's *target height* so the spring grid
+        //     settles the hull at an angle. Fighting the strong springs with a
+        //     torque would need a violent (unstable) force, so we move the
+        //     equilibrium instead. Front rays lift, rear rays sink for nose-up;
+        //     for nose-down the rear lifts while the front is pinned at
+        //     HoverHeight so it never dips below ~1 m.
+        //   • Airborne (jets): the springs aren't touching ground, so a direct
+        //     PD torque about the hull's pitch axis tilts the nose — strong
+        //     enough to pitch up and over while the jets hold the tank aloft.
+        //
+        // FollowCamera.CurrentPitch convention: negative = look up, positive =
+        // look down. We map |look| / LookPitchRef to a signed hull pitch
+        // (+ve = nose up) clamped asymmetrically.
+        [Export] public float LookPitchRef     = 0.6f;  // look angle mapped to a full clamp
+        [Export] public float MaxPitchDown     = 0.18f; // nose-down clamp (front stays ~1 m)
+        [Export] public float MaxPitchUpGround = 0.62f; // nose-up clamp, no jets (front ~2 m)
+        [Export] public float MaxPitchUpAir    = 2.4f;  // nose-up clamp with jets (up and over)
+        [Export] public float PitchAirGain     = 80f;   // P term for airborne pitch torque
+        [Export] public float PitchAirDamp     = 10f;   // D term for airborne pitch torque
+
+        // Min colliding hover rays to count as "grounded": at/above this the
+        // hover bias owns pitch and the airborne torque is suppressed (it would
+        // only fight the springs). Below it the torque takes over.
+        private const int GroundedRayCount = 3;
+
+        // Per-ray local Z (forward = -Z), cached so the hover bias can compute a
+        // height offset per ray without re-reading the node transform each tick.
+        private float[] _rayLocalZ = null!;
+        // Hull pitch target for the grounded hover bias this tick (always within
+        // ±90° so Tan stays well-defined). Set in _PhysicsProcess.
+        private float _pitchBiasTarget;
+
         // ── Weapons ──────────────────────────────────────────────────────────
         public WeaponManager? Weapons { get; private set; }
 
@@ -220,6 +257,12 @@ namespace HoverTank
                 GetNode<RayCast3D>("HoverRayBC"),
                 GetNode<RayCast3D>("HoverRayBR"),
             };
+
+            // Cache each ray's local Z (forward = -Z) for the aim-driven pitch
+            // bias. Rays are direct children of the body, so Position is local.
+            _rayLocalZ = new float[_hoverRays.Length];
+            for (int i = 0; i < _hoverRays.Length; i++)
+                _rayLocalZ[i] = _hoverRays[i].Position.Z;
 
             Weapons   = GetNodeOrNull<WeaponManager>("WeaponManager");
             AimCamera = GetNodeOrNull<FollowCamera>("CameraMount/Camera");
@@ -252,11 +295,27 @@ namespace HoverTank
 
         public override void _PhysicsProcess(double delta)
         {
+            // Aim-driven pitch targets (computed once; consumed by the hover bias
+            // and the airborne torque). lookFrac: +1 = full look-up, -1 = full down.
+            float lookFrac = AimCamera != null
+                ? Mathf.Clamp(-AimCamera.CurrentPitch / LookPitchRef, -1f, 1f)
+                : 0f;
+            // Grounded bias target — always uses the ground clamp so it stays
+            // within ±90° (Tan-safe) even while the jets are held.
+            _pitchBiasTarget = lookFrac >= 0f
+                ? lookFrac * MaxPitchUpGround
+                : lookFrac * MaxPitchDown;
+            // Airborne torque target — the jets unlock the full look-up-and-over.
+            float airPitchTarget = lookFrac >= 0f
+                ? lookFrac * (_currentInput.JumpJet ? MaxPitchUpAir : MaxPitchUpGround)
+                : lookFrac * MaxPitchDown;
+
             ProcessHoverForces();
             ProcessMovement(_currentInput);
             ProcessJumpJets(_currentInput);
             var av = AngularVelocity;
             ApplyTorque(new Vector3(-av.X * TiltDrag, 0f, -av.Z * TiltDrag));
+            ProcessBodyPitchAir(airPitchTarget);
             ProcessSelfRighting();
 
             // Drive turret toward camera aim direction.
@@ -301,15 +360,30 @@ namespace HoverTank
         // ────────────────────────────────────────────────────────────────────
         private void ProcessHoverForces()
         {
-            foreach (var ray in _hoverRays)
+            // Aim-driven pitch bias: convert the target hull pitch into a per-ray
+            // target-height offset. forward = -Z, so a ray at local z is lifted by
+            // -z*slope — front rays (z<0) rise and rear rays (z>0) sink for nose-up.
+            // For nose-down (slope<0) the front rays are pinned at HoverHeight so
+            // the nose can't drop below ~1 m; the rear lifts to make the angle.
+            float pitchSlope = Mathf.Tan(_pitchBiasTarget);
+
+            for (int i = 0; i < _hoverRays.Length; i++)
             {
+                var ray = _hoverRays[i];
                 if (!ray.IsColliding()) continue;
+
+                float zr = _rayLocalZ[i];
+                float targetHeight = HoverHeight - zr * pitchSlope;
+                if (pitchSlope < 0f && zr < 0f)
+                    targetHeight = HoverHeight; // pin the front: never dip below ~1 m
+                if (targetHeight < 0f)
+                    targetHeight = 0f; // a sinking rear simply gets no support
 
                 float rayLength = -ray.TargetPosition.Y; // 2.5
                 float distToGround = ray.GlobalPosition.DistanceTo(ray.GetCollisionPoint());
 
                 float compression = rayLength - distToGround;
-                float equilibriumCompression = rayLength - HoverHeight;
+                float equilibriumCompression = rayLength - targetHeight;
                 float displacement = compression - equilibriumCompression;
 
                 // Point velocity at the ray origin (rigid body kinematics).
@@ -419,6 +493,36 @@ namespace HoverTank
             {
                 _jetFuel = Mathf.Min(1f, _jetFuel + dt / JumpRechargeTime);
             }
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // Airborne aim pitch: a PD torque about the hull's pitch axis that tilts
+        // the nose toward the look direction. Only runs when the tank is off the
+        // ground — grounded pitch is owned by the hover-height bias, and a torque
+        // there would just fight the (far stronger) springs. With the jets held,
+        // the clamp opens up to MaxPitchUpAir so the tank can pitch up and over.
+        // ────────────────────────────────────────────────────────────────────
+        private void ProcessBodyPitchAir(float targetPitch)
+        {
+            if (AimCamera == null) return; // AI/server tanks don't aim the hull
+
+            int contacts = 0;
+            foreach (var ray in _hoverRays)
+                if (ray.IsColliding()) contacts++;
+            if (contacts >= GroundedRayCount) return;
+
+            // Current hull pitch: +ve = nose up. forward = -Z.
+            Vector3 forward = -GlobalBasis.Z;
+            float currentPitch = Mathf.Atan2(forward.Y,
+                new Vector2(forward.X, forward.Z).Length());
+
+            // Torque about +X pitches the nose up (right-hand rule), matching the
+            // +ve = nose-up convention, so a positive error drives toward target.
+            Vector3 pitchAxis = GlobalBasis.X;
+            float pitchRate = AngularVelocity.Dot(pitchAxis);
+            float torque = (targetPitch - currentPitch) * PitchAirGain
+                         - pitchRate * PitchAirDamp;
+            ApplyTorque(pitchAxis * torque);
         }
 
         // Called during client reconciliation: applies input forces without hover
