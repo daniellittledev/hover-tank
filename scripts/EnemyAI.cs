@@ -38,7 +38,7 @@ namespace HoverTank
         public override void _Ready()
         {
             _tank    = GetParent<HoverTank>();
-            _turret  = GetParent().GetNode<TurretController>("Turret");
+            _turret  = GetParent().GetNode<TurretController>("Visual/Turret");
             _weapons = GetParent().GetNode<WeaponManager>("WeaponManager");
 
             _weapons.SelectWeapon(PreferredWeapon);

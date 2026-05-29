@@ -110,7 +110,7 @@ namespace HoverTank
             _rocketRight  = GetNode<Marker3D>("RocketRight");
             _cannon       = GetNode<Marker3D>("Cannon");
 
-            _turret = GetParent().GetNodeOrNull<TurretController>("Turret");
+            _turret = GetParent().GetNodeOrNull<TurretController>("Visual/Turret");
 
             // Cache parent body so projectiles can exclude it and recoil can be applied.
             if (GetParent() is RigidBody3D rb)

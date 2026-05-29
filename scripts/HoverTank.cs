@@ -242,6 +242,40 @@ namespace HoverTank
         private AudioStreamPlayer3D? _enginePlayer;
         private float _jetFuel = 1f; // 0 = empty, 1 = full
 
+        // ── Visual interpolation ─────────────────────────────────────────────
+        // The RigidBody's transform only updates at the 60 Hz physics rate, so
+        // rendering it directly judders whenever the render frame and physics
+        // tick drift out of phase. We render the meshes from a separate "Visual"
+        // node whose transform we lerp between the last two physics transforms
+        // each frame, using the engine's physics-tick fraction. This is the
+        // standard fixed-timestep interpolation: ~1 tick (16 ms) of latency in
+        // exchange for perfectly smooth motion at any refresh rate.
+        //
+        // Remote ghosts (Freeze == true) are positioned by RemoteEntityInterpolator
+        // instead, so they skip this path and the Visual node simply tracks the body.
+        private Node3D _visual = null!;
+        private Transform3D _prevVisualXform;
+        private Transform3D _curVisualXform;
+
+        /// <summary>
+        /// The interpolated, render-smooth transform of the tank's visuals.
+        /// Camera and any view-following code should read this instead of
+        /// <see cref="Node3D.GlobalTransform"/>, which steps at the physics rate.
+        /// </summary>
+        public Transform3D VisualTransform => _visual.GlobalTransform;
+
+        /// <summary>
+        /// Collapses the interpolation history to the current physics transform.
+        /// Call after any teleport (reconcile snap, respawn, death impulse) so the
+        /// Visual node doesn't smear across the discontinuity.
+        /// </summary>
+        public void ResetVisualInterpolation()
+        {
+            _prevVisualXform = _curVisualXform = GlobalTransform;
+            if (_visual != null)
+                _visual.GlobalTransform = GlobalTransform;
+        }
+
         public override void _Ready()
         {
             // 3×3 impulse grid: front/middle/back rows × left/centre/right columns.
@@ -266,7 +300,11 @@ namespace HoverTank
 
             Weapons   = GetNodeOrNull<WeaponManager>("WeaponManager");
             AimCamera = GetNodeOrNull<FollowCamera>("CameraMount/Camera");
-            _turret   = GetNodeOrNull<TurretController>("Turret");
+            _turret   = GetNodeOrNull<TurretController>("Visual/Turret");
+
+            // Visual interpolation root (holds Body, Turret, Thruster, glow).
+            _visual = GetNode<Node3D>("Visual");
+            _curVisualXform = _prevVisualXform = GlobalTransform;
 
             // AI-driven tanks (enemy or friendly) don't need the player camera.
             if (IsEnemy || IsFriendlyAI)
@@ -331,6 +369,21 @@ namespace HoverTank
                 Weapons.AimTarget = AimCamera?.AimTarget;
 
             UpdateEngineAudio();
+
+            // Record this tick's settled transform for render interpolation.
+            _prevVisualXform = _curVisualXform;
+            _curVisualXform  = GlobalTransform;
+        }
+
+        // Render-frame interpolation: blend the visuals between the last two
+        // physics transforms by the fraction of the way through the current
+        // physics tick. Skipped for frozen bodies (remote ghosts / dead tanks),
+        // which are positioned externally and whose Visual node tracks the body.
+        public override void _Process(double delta)
+        {
+            if (Freeze) return;
+            float fraction = (float)Engine.GetPhysicsInterpolationFraction();
+            _visual.GlobalTransform = _prevVisualXform.InterpolateWith(_curVisualXform, fraction);
         }
 
         private void UpdateEngineAudio()

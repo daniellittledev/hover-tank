@@ -110,7 +110,7 @@ namespace HoverTank
 
         private static void SetAllyHullColor(HoverTank tank)
         {
-            var body = tank.GetNodeOrNull<MeshInstance3D>("Body");
+            var body = tank.GetNodeOrNull<MeshInstance3D>("Visual/Body");
             if (body == null) return;
             body.SetSurfaceOverrideMaterial(0, new StandardMaterial3D
             {
@@ -193,7 +193,7 @@ namespace HoverTank
 
         private static void SetEnemyHullColor(HoverTank tank)
         {
-            var body = tank.GetNodeOrNull<MeshInstance3D>("Body");
+            var body = tank.GetNodeOrNull<MeshInstance3D>("Visual/Body");
             if (body == null) return;
 
             body.SetSurfaceOverrideMaterial(0, new StandardMaterial3D

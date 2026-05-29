@@ -154,6 +154,10 @@ namespace HoverTank
             _localTank.LinearVelocity   = serverState.LinearVelocity;
             _localTank.AngularVelocity  = serverState.AngularVelocity;
 
+            // The snap is a teleport — collapse render interpolation so the
+            // visuals don't smear from the predicted position to the corrected one.
+            _localTank.ResetVisualInterpolation();
+
             // Re-apply all unacked inputs that the server has not yet confirmed.
             // This is an approximate re-simulation: it accumulates the same forces
             // the server will apply on its next ticks, which converges quickly for

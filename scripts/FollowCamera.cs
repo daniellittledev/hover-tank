@@ -118,7 +118,7 @@ namespace HoverTank
                 _excludeRids.Add(_tank.GetRid());
 
                 // Cache turret ref so FPS mode can hide the mesh without a per-frame lookup.
-                _turretNode = _tank.GetNodeOrNull<Node3D>("Turret");
+                _turretNode = _tank.GetNodeOrNull<Node3D>("Visual/Turret");
             }
 
             // Pre-allocate aim raycast query; From/To are updated each frame.
@@ -206,7 +206,9 @@ namespace HoverTank
             }
 
             // Spring-follow the orbit centre so sudden tank jolts don't snap the camera.
-            Vector3 targetCenter = _tank.GlobalPosition + Vector3.Up * OrbitCenterHeight;
+            // Read the interpolated visual transform, not the raw physics transform,
+            // so the camera tracks the same render-smooth position the player sees.
+            Vector3 targetCenter = _tank.VisualTransform.Origin + Vector3.Up * OrbitCenterHeight;
             // Cap dt to avoid GC/hitch frames over-correcting the lerp, which
             // would snap the camera forward and make the tank appear to pop
             // backward relative to the view. One physics tick (1/60 s) is the
@@ -243,7 +245,8 @@ namespace HoverTank
             else // FirstPerson
             {
                 // Eye sits inside the tank at turret height, moving with the hull.
-                Vector3 eye = _tank.GlobalTransform * FpsEyeOffset;
+                // Use the interpolated transform so the first-person view is smooth.
+                Vector3 eye = _tank.VisualTransform * FpsEyeOffset;
 
                 // Build orientation from reticle yaw/pitch using Euler-style
                 // composition: pitch first (around local X), then yaw (around
