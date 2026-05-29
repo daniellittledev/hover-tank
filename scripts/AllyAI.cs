@@ -63,7 +63,7 @@ namespace HoverTank
         public override void _Ready()
         {
             _tank    = GetParent<HoverTank>();
-            _turret  = GetParent().GetNode<TurretController>("Turret");
+            _turret  = GetParent().GetNode<TurretController>("Visual/Turret");
             _weapons = GetParent().GetNode<WeaponManager>("WeaponManager");
 
             _weapons.SelectWeapon(WeaponType.MiniGun);
@@ -227,7 +227,7 @@ namespace HoverTank
 
         private void ApplySelectionGlow(bool selected)
         {
-            var body = _tank.GetNodeOrNull<MeshInstance3D>("Body");
+            var body = _tank.GetNodeOrNull<MeshInstance3D>("Visual/Body");
             if (body == null) return;
 
             // Clone the current override material (or create a fresh one) so we

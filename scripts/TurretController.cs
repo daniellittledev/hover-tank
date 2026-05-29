@@ -37,7 +37,9 @@ namespace HoverTank
 
         public override void _Ready()
         {
-            _tank          = GetParent<HoverTank>();
+            // Turret lives under the tank's Visual interpolation node, so the
+            // hull is two levels up (HoverTank/Visual/Turret), not the direct parent.
+            _tank          = GetNode<HoverTank>("../..");
             _barrel        = GetNodeOrNull<Node3D>("Barrel");
             _maxYawRad     = Mathf.DegToRad(MaxYawDeg);
             _slewRadPerSec = Mathf.DegToRad(SlewDegPerSec);
