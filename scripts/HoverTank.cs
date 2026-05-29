@@ -39,7 +39,7 @@ namespace HoverTank
 
         // ── Angular drag ────────────────────────────────────────────────
         // Roll/pitch counter-torque only — kills tumbling from terrain jolts.
-        // Yaw damping is owned entirely by AutoSteerDamp in the PD controller.
+        // Yaw damping is owned entirely by AutoSteerDamp in the auto-steer controller.
         [Export] public float TiltDrag = 30f;
 
         // ── Self-righting (bottom-heavy behaviour) ──────────────────────
@@ -182,9 +182,14 @@ namespace HoverTank
         }
 
         // ── Auto-steer (Halo-style) ──────────────────────────────────────────
-        // Proportional gain: torque per radian of yaw error.
-        [Export] public float AutoSteerGain = 120f;
-        // Derivative gain: sole source of yaw damping (no separate angular drag on Y).
+        // Cap on commanded yaw rate (rad/s). The tank turns at this rate for any
+        // meaningful heading error and only ramps down inside the settle band, so
+        // steering does not bleed off as the hull closes on the target heading.
+        [Export] public float AutoSteerMaxRate = 3.0f;
+        // Heading error (rad) below which the commanded rate ramps down linearly to
+        // zero. Above it, the full AutoSteerMaxRate is commanded.
+        [Export] public float AutoSteerSettleBand = 0.25f;
+        // Stiffness of the torque that drives actual yaw rate to the commanded rate.
         [Export] public float AutoSteerDamp = 65f;
 
         // ── Weapons ──────────────────────────────────────────────────────────
@@ -349,16 +354,28 @@ namespace HoverTank
             // == world up, so normal driving is unchanged.
             Vector3 yawAxis = GlobalBasis.Y;
             float   yawRate = AngularVelocity.Dot(yawAxis);
-            float   torque  = -AutoSteerDamp * yawRate;
 
+            // Command a constant turn rate toward the target heading, saturated at
+            // AutoSteerMaxRate. Only within AutoSteerSettleBand does the commanded
+            // rate taper, so the tank keeps turning at full speed instead of slowing
+            // as the error shrinks. The torque is a stiff drive toward that rate,
+            // which also damps any residual yaw when the commanded rate is zero.
+            //
             // The heading is undefined when the forward axis nears vertical
-            // (Atan2(0,0)→0). Skip the proportional steer there so a garbage error
-            // can't kick the already-tilted tank into a spin; the damping term
-            // still bleeds off any residual yaw rate.
+            // (Atan2(0,0)→0). Command zero rate there so a garbage error can't kick
+            // the already-tilted tank into a spin; the drive still bleeds off any
+            // residual yaw rate.
+            float desiredRate = 0f;
             if (MathUtils.TryGetHeading(Basis, out float tankYaw))
-                torque += AutoSteerGain * MathUtils.AngleDiff(input.AimYaw, tankYaw);
+            {
+                float error = MathUtils.AngleDiff(input.AimYaw, tankYaw);
+                float scale = AutoSteerSettleBand > 0f
+                    ? Mathf.Clamp(error / AutoSteerSettleBand, -1f, 1f)
+                    : Mathf.Sign(error);
+                desiredRate = scale * AutoSteerMaxRate;
+            }
 
-            ApplyTorque(yawAxis * torque);
+            ApplyTorque(yawAxis * (AutoSteerDamp * (desiredRate - yawRate)));
 
             if (input.Steer != 0f)
             {
