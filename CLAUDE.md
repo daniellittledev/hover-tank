@@ -40,6 +40,7 @@ Only add entries here when future changes are very likely to need them.
 - **Scene ownership**: `Main.tscn` owns terrain and instances `HoverTank.tscn`. Camera is a child of the tank, mounted to `CameraMount`, driven by `FollowCamera.cs`.
 - **No autoloads**: All state is script-local. Use signals for cross-scene communication.
 - **Cache node refs and RIDs in `_Ready`**: Never call `GetParent()`, `GetNode()`, or `.GetRid()` in hot paths (`_Process`, `_PhysicsProcess`, `Fire()`). Resolve and store them as private fields during `_Ready`. This pattern already covers `_hoverRays`, `_ownerRid`, `_tankBody`, `_turret`, etc. — apply it consistently to any new cross-node reference.
+- **Mesh winding is clockwise**: Godot renders front faces with clockwise vertex winding (when viewed from outside). In procedural mesh builders like `TankMeshBuilder.cs`, the `Quad`/`Tri` helpers already emit CW order — pass corners CW-as-seen-from-outside. If faces render inside-out (only back faces visible), the winding is reversed, not the normals.
 
 ## Session logs
 
