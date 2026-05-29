@@ -193,9 +193,13 @@ namespace HoverTank
             // The hull's own auto-steer PD (HoverTank.ProcessMovement) then pulls
             // the hull toward CurrentYaw at its natural turn rate, so leaning on
             // the edge of the cone drags the tank around Battlezone-style.
-            if (_mode == ViewMode.FirstPerson)
+            // Skip the cone clamp when the hull nears vertical: the heading is
+            // undefined there (Atan2(0,0)→0) and clamping against it would snap
+            // the reticle to an arbitrary direction. Leave CurrentYaw untouched
+            // until the hull rights itself.
+            if (_mode == ViewMode.FirstPerson
+                && MathUtils.TryGetHeading(_tank.Basis, out float hullYaw))
             {
-                float hullYaw = Mathf.Atan2(_tank.Basis.Z.X, _tank.Basis.Z.Z);
                 float yawDelta = MathUtils.AngleDiff(CurrentYaw, hullYaw);
                 yawDelta       = Mathf.Clamp(yawDelta, -FpsYawConeHalfWidth, FpsYawConeHalfWidth);
                 CurrentYaw     = MathUtils.WrapAngle(hullYaw + yawDelta);

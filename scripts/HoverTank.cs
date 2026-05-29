@@ -341,11 +341,24 @@ namespace HoverTank
             // camera directly behind this tank — matching FollowCamera's yaw=0
             // convention. This ensures zero error (and zero torque) when the camera
             // is centred behind the tank.
-            float tankYaw  = Mathf.Atan2(Basis.Z.X, Basis.Z.Z);
-            float yawError = MathUtils.AngleDiff(input.AimYaw, tankYaw);
-            float yawRate  = AngularVelocity.Y;
+            //
+            // Torque is applied about the hull's own up axis (GlobalBasis.Y), not
+            // world up: when the hull is tilted far from vertical a world-Y torque
+            // leaks into roll/pitch and fights ProcessSelfRighting. Damping reads
+            // the yaw rate about that same axis. For an upright tank GlobalBasis.Y
+            // == world up, so normal driving is unchanged.
+            Vector3 yawAxis = GlobalBasis.Y;
+            float   yawRate = AngularVelocity.Dot(yawAxis);
+            float   torque  = -AutoSteerDamp * yawRate;
 
-            ApplyTorque(Vector3.Up * (AutoSteerGain * yawError - AutoSteerDamp * yawRate));
+            // The heading is undefined when the forward axis nears vertical
+            // (Atan2(0,0)→0). Skip the proportional steer there so a garbage error
+            // can't kick the already-tilted tank into a spin; the damping term
+            // still bleeds off any residual yaw rate.
+            if (MathUtils.TryGetHeading(Basis, out float tankYaw))
+                torque += AutoSteerGain * MathUtils.AngleDiff(input.AimYaw, tankYaw);
+
+            ApplyTorque(yawAxis * torque);
 
             if (input.Steer != 0f)
             {
