@@ -49,14 +49,18 @@ namespace HoverTank
             float dt = (float)delta;
 
             // Tank's world-space yaw — same convention as FollowCamera.CurrentYaw
-            // (Atan2 of the backward direction, not the forward direction).
-            float tankYaw    = Mathf.Atan2(_tank.Basis.Z.X, _tank.Basis.Z.Z);
-            float desiredRel = MathUtils.AngleDiff(TargetAimYaw, tankYaw);
-            desiredRel       = Mathf.Clamp(desiredRel, -_maxYawRad, _maxYawRad);
+            // (Atan2 of the backward direction, not the forward direction). When
+            // the hull nears vertical the heading is undefined; hold the current
+            // turret yaw rather than snapping the turret to face an arbitrary 0.
+            if (MathUtils.TryGetHeading(_tank.Basis, out float tankYaw))
+            {
+                float desiredRel = MathUtils.AngleDiff(TargetAimYaw, tankYaw);
+                desiredRel       = Mathf.Clamp(desiredRel, -_maxYawRad, _maxYawRad);
 
-            // Slew at limited angular speed.
-            float newYaw = Mathf.MoveToward(Rotation.Y, desiredRel, _slewRadPerSec * dt);
-            Rotation = new Vector3(0f, newYaw, 0f);
+                // Slew at limited angular speed.
+                float newYaw = Mathf.MoveToward(Rotation.Y, desiredRel, _slewRadPerSec * dt);
+                Rotation = new Vector3(0f, newYaw, 0f);
+            }
 
             // Barrel pitch — the Barrel mesh is already rotated 90° on X in the scene
             // (cylinder axis aligned with -Z). We add elevation on top of that.
