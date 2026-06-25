@@ -50,15 +50,22 @@ namespace HoverTank
         // Cells per chunk side. Chunk world size = ChunkCells * CellSize.
         [Export] public int ChunkCells = 32;
         // Number of chunks of radius to keep loaded around the player.
-        // Total loaded chunks = (2*ChunkLoadRadius+1)^2.
-        [Export] public int ChunkLoadRadius = 3;
-        // Amplitude of TestDrive rolling hills (metres).
-        [Export] public float InfiniteHillScale = 22f;
+        // Total loaded chunks = (2*ChunkLoadRadius+1)^2. Radius 4 keeps a wide
+        // vista of swells visible before the aerial-perspective fog closes in.
+        [Export] public int ChunkLoadRadius = 4;
+        // Amplitude of TestDrive rolling swells (metres). Large + low-frequency
+        // (see SetupInfiniteTerrain) gives the big ocean-swell dunes of the
+        // reference, which the hover springs ride and the jets launch off.
+        [Export] public float InfiniteHillScale = 40f;
+        // World height (metres) at which terrain crests begin to glow teal, and
+        // the height of full glow. Drives the emission ramp in the dream shader.
+        [Export] public float CrestGlowLow  = 10f;
+        [Export] public float CrestGlowHigh = 26f;
 
         // Runtime state for infinite mode.
         private bool _infiniteMode;
         private FastNoiseLite _hillNoise = null!;
-        private StandardMaterial3D _infiniteMaterial = null!;
+        private Material _infiniteMaterial = null!;
         private readonly Dictionary<(int, int), Node3D> _chunks = new();
         private (int, int) _lastCenterChunk = (int.MinValue, int.MinValue);
         private Node3D? _player;
@@ -393,13 +400,13 @@ namespace HoverTank
             _hillNoise = new FastNoiseLite
             {
                 Seed              = NoiseSeed,
-                Frequency         = 0.0105f,  // lower = wider, more gradual hills
-                FractalOctaves    = 3,        // fewer octaves = no fine-grain ripples
-                FractalGain       = 0.35f,    // less high-frequency octave weight
+                Frequency         = 0.006f,   // long wavelength → big ocean-swell dunes
+                FractalOctaves    = 4,        // a little medium-scale variation on the swells
+                FractalGain       = 0.42f,    // keep high-frequency octaves gentle (no rubble)
                 FractalLacunarity = 2.0f,
             };
 
-            _infiniteMaterial = CreatePanelGridMaterial();
+            _infiniteMaterial = CreateDreamTerrainMaterial();
 
             // Pre-build a block of chunks around the origin so the player tank
             // (spawned after the terrain's _Ready) has solid ground under it on
@@ -597,41 +604,60 @@ namespace HoverTank
             return mesh;
         }
 
-        // Procedurally-generated matte panel-grid texture. One texture is
-        // shared across every chunk; UVs are set so exactly one tile = one cell.
-        private StandardMaterial3D CreatePanelGridMaterial()
+        // Dream-terrain ShaderMaterial used for the TestDrive sandbox. A matte
+        // dark-slate surface with faint panel seams (from UV), whose upper crests
+        // emit teal light ramped by world height, plus a fresnel rim so ridge
+        // edges read as glowing wireframe under the scene's bloom + fog — the
+        // look of the reference video. One material is shared across all chunks.
+        //
+        // world_height comes straight from VERTEX.y: chunk roots sit at y=0 and
+        // heights are stored as world metres, so local vertex Y == world height.
+        // NORMAL/VIEW are view-space in Godot spatial shaders, which is exactly
+        // what the fresnel term needs.
+        private ShaderMaterial CreateDreamTerrainMaterial()
         {
-            const int size      = 128;
-            const int lineWidth = 2;
-
-            var img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
-            var silver = new Color(0.88f, 0.89f, 0.92f);
-            img.Fill(silver);
-
-            // Draw dark-grey hairline borders — when tiled at 1 tile per cell
-            // this produces a subtle panel-seam grid across the terrain.
-            var lineColor = new Color(0.20f, 0.22f, 0.25f);
-            for (int i = 0; i < size; i++)
+            var shader = new Shader
             {
-                for (int w = 0; w < lineWidth; w++)
-                {
-                    img.SetPixel(i, w,              lineColor);
-                    img.SetPixel(i, size - 1 - w,   lineColor);
-                    img.SetPixel(w, i,              lineColor);
-                    img.SetPixel(size - 1 - w, i,   lineColor);
-                }
-            }
-            img.GenerateMipmaps();
-            var tex = ImageTexture.CreateFromImage(img);
+                Code = @"
+shader_type spatial;
+render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
-            // Matte: Metallic=0 + high Roughness → diffuse only, no specular hotspot.
-            return new StandardMaterial3D
-            {
-                AlbedoTexture = tex,
-                TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
-                Metallic      = 0.0f,
-                Roughness     = 0.85f,
+uniform vec3  base_color  : source_color = vec3(0.09, 0.10, 0.15);
+uniform vec3  grid_color  : source_color = vec3(0.04, 0.05, 0.09);
+uniform vec3  crest_color : source_color = vec3(0.22, 0.85, 1.00);
+uniform float glow_low    = 10.0;   // world height where crest glow begins
+uniform float glow_high   = 26.0;   // world height of full crest glow
+uniform float glow_energy = 2.6;
+uniform float grid_width  = 0.035;
+
+varying float world_height;
+varying vec2  grid_uv;
+
+void vertex() {
+    world_height = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
+    grid_uv      = UV * 0.5; // one panel seam per terrain cell
+}
+
+void fragment() {
+    // Faint panel-seam grid.
+    vec2  g    = abs(fract(grid_uv) - 0.5);
+    float line = smoothstep(0.5 - grid_width, 0.5, max(g.x, g.y));
+    ALBEDO     = mix(base_color, grid_color, line);
+    ROUGHNESS  = 0.88;
+    METALLIC   = 0.0;
+
+    // Crest glow: height ramp + fresnel rim on ridge edges.
+    float h    = smoothstep(glow_low, glow_high, world_height);
+    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 3.0);
+    EMISSION   = crest_color * (h * glow_energy + h * fres * glow_energy * 1.5);
+}
+",
             };
+
+            var mat = new ShaderMaterial { Shader = shader };
+            mat.SetShaderParameter("glow_low",  CrestGlowLow);
+            mat.SetShaderParameter("glow_high", CrestGlowHigh);
+            return mat;
         }
     }
 }

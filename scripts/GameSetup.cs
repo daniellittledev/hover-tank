@@ -28,6 +28,8 @@ namespace HoverTank
                     // so skipping it leaves just the player tank on the map.
                     if (GameState.Instance.SinglePlayerMode == SinglePlayerMode.StandardWaves)
                         AddChild(new WaveManager { Name = "WaveManager" });
+                    else
+                        ApplyDreamAtmosphere(); // TestDrive: swap to the pastel sandbox look
                     break;
 
                 case GameMode.NetworkHost:
@@ -53,6 +55,69 @@ namespace HoverTank
 
             _pauseMenu = new PauseMenu();
             AddChild(_pauseMenu);
+        }
+
+        // ── TestDrive "dream" atmosphere ──────────────────────────────────────
+        // Replaces the shared military-grey WorldEnvironment + Sun with the soft
+        // pastel palette of the reference video, but ONLY for the TestDrive
+        // sandbox — combat/multiplayer modes keep Main.tscn's environment. A
+        // peach→lavender sky, warm low sun, and thick aerial-perspective fog that
+        // fades distant swells to teal-grey, plus stronger additive bloom so the
+        // terrain's emissive crests glow like neon ridgelines.
+        private void ApplyDreamAtmosphere()
+        {
+            var we = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
+            if (we == null) return;
+
+            var sky = new ProceduralSkyMaterial
+            {
+                SkyTopColor       = new Color(0.40f, 0.48f, 0.74f), // lavender-blue zenith
+                SkyHorizonColor   = new Color(0.97f, 0.83f, 0.78f), // peach horizon
+                SkyCurve          = 0.12f,
+                GroundHorizonColor = new Color(0.95f, 0.80f, 0.76f),
+                GroundBottomColor  = new Color(0.55f, 0.50f, 0.58f),
+                SunAngleMax       = 30f,
+                SunCurve          = 0.08f,
+            };
+
+            var env = new Godot.Environment
+            {
+                BackgroundMode      = Godot.Environment.BGMode.Sky,
+                Sky                 = new Sky { SkyMaterial = sky },
+                AmbientLightSource  = Godot.Environment.AmbientSource.Sky,
+                AmbientLightSkyContribution = 0.6f,
+                AmbientLightColor   = new Color(0.70f, 0.74f, 0.86f),
+                AmbientLightEnergy  = 1.0f,
+
+                TonemapMode         = Godot.Environment.ToneMapper.Filmic,
+                TonemapExposure     = 1.05f,
+
+                // Soft additive bloom makes the teal crests read as glowing light.
+                GlowEnabled         = true,
+                GlowIntensity       = 0.55f,
+                GlowBloom           = 0.12f,
+                GlowBlendMode       = Godot.Environment.GlowBlendModeEnum.Additive,
+                GlowHdrThreshold    = 0.85f,
+
+                // Aerial-perspective fog: distant swells fade to a teal haze,
+                // hiding the streamed-chunk horizon seam.
+                FogEnabled          = true,
+                FogLightColor       = new Color(0.64f, 0.76f, 0.82f),
+                FogLightEnergy      = 0.9f,
+                FogDensity          = 0.012f,
+                FogAerialPerspective = 0.9f,
+                FogSkyAffect        = 0.35f,
+            };
+            we.Environment = env;
+
+            var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
+            if (sun != null)
+            {
+                sun.LightColor     = new Color(1.00f, 0.84f, 0.70f); // warm golden-hour
+                sun.LightEnergy    = 1.0f;
+                sun.RotationDegrees = new Vector3(-16f, 42f, 0f);    // low, raking light
+                sun.ShadowEnabled  = true;
+            }
         }
 
         // ── Escape / pause ────────────────────────────────────────────────────
