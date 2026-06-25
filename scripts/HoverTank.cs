@@ -256,6 +256,23 @@ namespace HoverTank
         private GpuParticles3D? _sparkTrail;
         private bool _grounded;
 
+        // FOV widens with speed for a sense of acceleration; this is the extra
+        // degrees added at full MaxSpeed on top of the base TestDrive FOV.
+        [Export] public float MaxFovKick = 12f;
+        private float _baseFov;
+        // Eased 0..1 speed fraction driving FOV kick, speed lines and glow pulse.
+        private float _speedIntensity;
+        // Under-craft hover glow (boosted + speed-pulsed in feel mode).
+        private OmniLight3D? _hoverGlowLight;
+        private float _glowBase;
+        // One-shot ember burst fired on a hard landing.
+        private GpuParticles3D? _landingBurst;
+        // Full-screen radial speed-line overlay material (intensity driven by speed).
+        private ShaderMaterial? _speedLines;
+        // Landing detection: previous grounded state + last tick's vertical velocity.
+        private bool _wasGrounded;
+        private float _prevVertVel;
+
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
@@ -376,11 +393,68 @@ namespace HoverTank
                 AimCamera.OrbitRadius       = 6.5f;
                 AimCamera.OrbitCenterHeight = 1.1f;
                 AimCamera.Fov               = 82f;
+                _baseFov                    = 82f;
             }
 
             _sparkTrail = CreateSparkTrail();
             AddChild(_sparkTrail);
             _sparkTrail.Position = new Vector3(0f, -0.1f, 1.3f); // rear underside
+
+            // One-shot ember burst, fired on hard landings (see UpdateFeelEffects).
+            _landingBurst = CreateLandingBurst();
+            AddChild(_landingBurst);
+
+            // Boost the existing under-craft glow to a brighter teal so the hull
+            // reads like the glowing craft in the reference; pulsed with speed.
+            _hoverGlowLight = GetNodeOrNull<OmniLight3D>("Visual/HoverGlow/GlowLight");
+            if (_hoverGlowLight != null)
+            {
+                _hoverGlowLight.LightColor  = new Color(0.40f, 0.85f, 1.0f);
+                _glowBase                   = 4.0f;
+                _hoverGlowLight.LightEnergy = _glowBase;
+                _hoverGlowLight.OmniRange   = 6.0f;
+            }
+
+            _speedLines = CreateSpeedLineOverlay();
+        }
+
+        // Builds a full-screen radial speed-line overlay on its own CanvasLayer
+        // (parented to the tank, so it lives and dies with the player) and returns
+        // its ShaderMaterial. The tank pushes a 0..1 `intensity` into it each
+        // frame; the lines are faint, edge-biased streaks that only show at speed.
+        private ShaderMaterial CreateSpeedLineOverlay()
+        {
+            var shader = new Shader
+            {
+                Code = @"
+shader_type canvas_item;
+
+uniform float intensity : hint_range(0.0, 1.0) = 0.0;
+uniform vec3  line_color : source_color = vec3(0.85, 0.93, 1.0);
+
+float hash(float n) { return fract(sin(n) * 43758.5453123); }
+
+void fragment() {
+    vec2  p   = UV - 0.5;
+    float r   = length(p);
+    float ang = atan(p.y, p.x) / 6.2831853 + 0.5;  // 0..1 around the circle
+    float seg = floor(ang * 90.0);                  // 90 angular buckets
+    float present = step(0.80, hash(seg));          // ~20% carry a streak
+    float edge = smoothstep(0.16, 0.5, r);          // fade out toward centre
+    float a = present * edge * intensity * 0.45;    // faint
+    COLOR = vec4(line_color, a);
+}
+",
+            };
+            var mat = new ShaderMaterial { Shader = shader };
+
+            var rect = new ColorRect { Material = mat, MouseFilter = Control.MouseFilterEnum.Ignore };
+            rect.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+
+            var layer = new CanvasLayer { Layer = 5, Name = "SpeedLines" };
+            layer.AddChild(rect);
+            AddChild(layer);
+            return mat;
         }
 
         // Orange→yellow ember burst that trails the craft. LocalCoords = false so
@@ -404,25 +478,66 @@ namespace HoverTank
             ramp.SetColor(1, new Color(1.0f, 0.35f, 0.04f, 0.0f)); // fading orange
             mat.ColorRamp = new GradientTexture1D { Gradient = ramp };
 
-            var sparkMesh = new QuadMesh { Size = new Vector2(0.12f, 0.12f) };
-            sparkMesh.Material = new StandardMaterial3D
-            {
-                ShadingMode            = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                Transparency           = BaseMaterial3D.TransparencyEnum.Alpha,
-                BlendMode              = BaseMaterial3D.BlendModeEnum.Add,
-                VertexColorUseAsAlbedo = true, // particle ramp drives colour + fade
-                BillboardMode          = BaseMaterial3D.BillboardModeEnum.Particles,
-            };
-
             return new GpuParticles3D
             {
                 ProcessMaterial = mat,
-                DrawPass1       = sparkMesh,
+                DrawPass1       = CreateEmberQuad(),
                 Amount          = 48,
                 Lifetime        = 0.7,
                 LocalCoords     = false,
                 Emitting        = false,
             };
+        }
+
+        // One-shot ember fan thrown outward + up on a hard landing. Restarted
+        // (and repositioned to the ground contact) from UpdateFeelEffects.
+        private static GpuParticles3D CreateLandingBurst()
+        {
+            var mat = new ParticleProcessMaterial
+            {
+                EmissionShape       = ParticleProcessMaterial.EmissionShapeEnum.Sphere,
+                EmissionSphereRadius = 0.4f,
+                Direction           = new Vector3(0f, 1f, 0f),
+                Spread              = 78f,
+                InitialVelocityMin  = 4f,
+                InitialVelocityMax  = 12f,
+                Gravity             = new Vector3(0f, -16f, 0f),
+                ScaleMin            = 0.05f,
+                ScaleMax            = 0.18f,
+            };
+            var ramp = new Gradient();
+            ramp.SetColor(0, new Color(1.0f, 0.88f, 0.45f, 1.0f));
+            ramp.SetColor(1, new Color(1.0f, 0.30f, 0.03f, 0.0f));
+            mat.ColorRamp = new GradientTexture1D { Gradient = ramp };
+
+            return new GpuParticles3D
+            {
+                ProcessMaterial = mat,
+                DrawPass1       = CreateEmberQuad(),
+                Amount          = 36,
+                Lifetime        = 0.6,
+                OneShot         = true,
+                Explosiveness   = 0.95f,
+                LocalCoords     = false,
+                Emitting        = false,
+            };
+        }
+
+        // Small additive billboard quad used by both ember effects: unshaded so
+        // it ignores scene lighting, additive so it glows, vertex-colour driven
+        // so each particle takes its colour + alpha fade from the process ramp.
+        private static QuadMesh CreateEmberQuad()
+        {
+            var quad = new QuadMesh { Size = new Vector2(0.12f, 0.12f) };
+            quad.Material = new StandardMaterial3D
+            {
+                ShadingMode            = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency           = BaseMaterial3D.TransparencyEnum.Alpha,
+                BlendMode              = BaseMaterial3D.BlendModeEnum.Add,
+                VertexColorUseAsAlbedo = true,
+                BillboardMode          = BaseMaterial3D.BillboardModeEnum.Particles,
+            };
+            return quad;
         }
 
         // Called by ClientSimulation or ServerSimulation before each physics tick.
@@ -490,6 +605,22 @@ namespace HoverTank
                 float hSpeed = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
                 _sparkTrail.Emitting = _grounded && hSpeed > 6f;
             }
+
+            // Hard-landing ember burst: fire the moment we regain ground contact
+            // if we were dropping fast. _prevVertVel holds last tick's Y velocity,
+            // captured before the springs arrest the fall, so it reads the true
+            // impact speed. A 4 m/s gate keeps gentle skim-bounces from popping.
+            if (_landingBurst != null && _grounded && !_wasGrounded && -_prevVertVel > 4f)
+            {
+                var mc = _hoverRays[4]; // HoverRayMC (centre)
+                _landingBurst.GlobalPosition = mc.IsColliding()
+                    ? mc.GetCollisionPoint()
+                    : GlobalPosition;
+                _landingBurst.Restart();
+            }
+
+            _wasGrounded = _grounded;
+            _prevVertVel = LinearVelocity.Y;
         }
 
         // Render-frame interpolation: blend the visuals between the last two
@@ -523,6 +654,30 @@ namespace HoverTank
             }
 
             _visual.GlobalTransform = xform;
+
+            if (_feelMode)
+                UpdateFeelVisuals((float)delta);
+        }
+
+        // Render-frame speed reactions (TestDrive feel): a FOV kick, the speed-line
+        // overlay, and an under-craft glow pulse, all scaled by an eased 0..1 speed
+        // fraction. Visual only — no physics — so it's safe in _Process.
+        private void UpdateFeelVisuals(float dt)
+        {
+            float hSpeed   = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
+            float targetFr = MaxSpeed > 8f
+                ? Mathf.Clamp((hSpeed - 8f) / (MaxSpeed - 8f), 0f, 1f)
+                : 0f;
+            _speedIntensity = Mathf.Lerp(_speedIntensity, targetFr, Mathf.Min(1f, 5f * dt));
+
+            if (AimCamera != null)
+                AimCamera.Fov = Mathf.Lerp(
+                    AimCamera.Fov, _baseFov + MaxFovKick * _speedIntensity, Mathf.Min(1f, 6f * dt));
+
+            _speedLines?.SetShaderParameter("intensity", _speedIntensity);
+
+            if (_hoverGlowLight != null)
+                _hoverGlowLight.LightEnergy = _glowBase + _speedIntensity * 2.5f;
         }
 
         private void UpdateEngineAudio()

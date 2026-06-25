@@ -50,6 +50,21 @@ reference's dreamy pastel aesthetic.
     toggled on in `_PhysicsProcess` while grounded (≥3 hover-ray contacts) and
     moving >6 m/s — the carved-surface sparks from the reference.
 
+- **Speed/landing polish** (`HoverTank.cs`, second pass)
+  - **Hard-landing burst**: a one-shot `GpuParticles3D` ember fan, repositioned
+    to the centre hover-ray's ground point and `Restart()`ed the frame ground
+    contact returns with >4 m/s downward speed (`_prevVertVel` captures the
+    pre-spring impact velocity). Shared ember-quad billboard factory
+    (`CreateEmberQuad`) used by both the trail and the burst.
+  - **Stronger hover glow**: the existing `Visual/HoverGlow/GlowLight` is
+    boosted to a brighter teal (energy 4, range 6) and pulses up to +2.5 energy
+    with speed, so the hull reads like the reference's glowing craft.
+  - **Speed FOV kick**: camera FOV eases from the base 82° up to +`MaxFovKick`
+    (12°) at `MaxSpeed`, scaled by an eased speed fraction.
+  - **Speed-line overlay**: a faint full-screen radial-streak `canvas_item`
+    shader on its own `CanvasLayer` (parented to the tank), edge-biased and
+    driven by the same speed fraction via an `intensity` uniform.
+
 ## Architectural decisions
 
 - **Sandbox-scoped, zero combat impact.** Every change is gated: infinite
@@ -63,12 +78,19 @@ reference's dreamy pastel aesthetic.
 - **Runtime-generated shader/material**, consistent with the project's
   "no baked assets" convention — the dream material is built in C# at `_Ready`.
 
+## Build / verification
+
+- Installed the .NET 8 SDK via the Ubuntu archive (`apt-get install dotnet-sdk-8.0`);
+  the official `dotnet-install.sh` CDN (`builds.dotnet.microsoft.com`) is blocked
+  by this session's egress policy. `dotnet build hover-tank.csproj` compiles
+  clean against the Godot 4.3 C# bindings (0 warnings, 0 errors), validating all
+  the `Godot.Environment` / particle / shader-material API usage.
+- The `.gdshader` strings (terrain spatial shader, speed-line canvas_item shader)
+  are only validated by Godot at scene load — the C# compiler doesn't parse them.
+
 ## Not done / follow-ups
 
-- No headless build available in this environment (no `dotnet`/Godot CLI);
-  changes were reviewed by hand against the Godot 4.3 C# API. Needs a run in the
-  editor (F5, TestDrive) to confirm visually and to tune the glow thresholds,
-  fog density, swell amplitude and bank strength to taste.
-- Possible next passes: a faint motion-streak / speed-line effect, a stronger
-  hover-glow under the craft, and a landing-impact spark burst on touchdown.
+- Still needs a run in the editor (F5 → Test Drive) to confirm the look and to
+  tune to taste: crest glow thresholds/energy, fog density, swell amplitude,
+  bank strength, speed-line density, and the landing-impact gate.
 </content>
