@@ -236,6 +236,26 @@ namespace HoverTank
         public FollowCamera?    AimCamera { get; private set; }
         private TurretController? _turret;
 
+        // ── TestDrive "feel" profile ─────────────────────────────────────────
+        // The reference video's movement: fast, floaty skimming with the craft
+        // banking into turns and throwing sparks as it carves the surface. This
+        // is enabled ONLY for the player tank in the TestDrive sandbox (detected
+        // from GameState in _Ready, mirroring TerrainGenerator's _infiniteMode) —
+        // combat/multiplayer tanks keep the tuned default handling untouched.
+        private bool _feelMode;
+        // Peak cosmetic roll (radians) when carving a hard turn / strafe.
+        [Export] public float MaxBank = 0.5f;
+        // How strongly lateral motion + yaw rate map into bank angle.
+        [Export] public float BankStrength = 0.09f;
+        // Rate (per second) the visual roll eases toward its target — higher
+        // snaps faster, lower floats more.
+        [Export] public float BankResponse = 6f;
+        // Current eased visual roll, applied to the interpolated Visual each frame.
+        private float _bankAngle;
+        // Ember/spark trail kicked up while skimming the ground at speed.
+        private GpuParticles3D? _sparkTrail;
+        private bool _grounded;
+
         // ── Internal ────────────────────────────────────────────────────────
         private RayCast3D[] _hoverRays = null!;
         private TankInput _currentInput;
@@ -326,6 +346,83 @@ namespace HoverTank
                 _enginePlayer = AudioManager.Instance.CreateEnginePlayer();
                 AddChild(_enginePlayer);
             }
+
+            // TestDrive sandbox: the human-driven tank gets the reference-video
+            // movement feel. Mirrors TerrainGenerator's _infiniteMode gate.
+            var gs = GameState.Instance;
+            _feelMode = gs != null
+                && gs.Mode == GameMode.SinglePlayer
+                && gs.SinglePlayerMode == SinglePlayerMode.TestDrive
+                && !IsEnemy && !IsFriendlyAI;
+            if (_feelMode)
+                ApplyTestDriveFeel();
+        }
+
+        // Reconfigures handling, camera framing and effects for the TestDrive
+        // sandbox to match the reference video — fast floaty skimming, a lower
+        // punchier chase camera, and an ember trail. Pure tuning + an added
+        // particle node; no change to the physics model itself.
+        private void ApplyTestDriveFeel()
+        {
+            // Quicker, faster, floatier than the combat default.
+            ThrustForce      = 440f;
+            MaxSpeed         = 28f;
+            JumpImpulse      = 4.5f;
+            JumpSustainForce = 26f;
+
+            // Lower, closer, wider chase view for a sense of speed.
+            if (AimCamera != null)
+            {
+                AimCamera.OrbitRadius       = 6.5f;
+                AimCamera.OrbitCenterHeight = 1.1f;
+                AimCamera.Fov               = 82f;
+            }
+
+            _sparkTrail = CreateSparkTrail();
+            AddChild(_sparkTrail);
+            _sparkTrail.Position = new Vector3(0f, -0.1f, 1.3f); // rear underside
+        }
+
+        // Orange→yellow ember burst that trails the craft. LocalCoords = false so
+        // particles stay put in the world and streak out behind as the tank moves,
+        // matching the carved-surface sparks in the reference. Toggled in
+        // _PhysicsProcess by ground contact + horizontal speed.
+        private static GpuParticles3D CreateSparkTrail()
+        {
+            var mat = new ParticleProcessMaterial
+            {
+                Direction          = new Vector3(0f, 0.5f, 1f), // up and aft
+                Spread             = 22f,
+                InitialVelocityMin = 3f,
+                InitialVelocityMax = 9f,
+                Gravity            = new Vector3(0f, -14f, 0f),  // embers arc back down
+                ScaleMin           = 0.04f,
+                ScaleMax           = 0.12f,
+            };
+            var ramp = new Gradient();
+            ramp.SetColor(0, new Color(1.0f, 0.85f, 0.35f, 1.0f)); // hot yellow
+            ramp.SetColor(1, new Color(1.0f, 0.35f, 0.04f, 0.0f)); // fading orange
+            mat.ColorRamp = new GradientTexture1D { Gradient = ramp };
+
+            var sparkMesh = new QuadMesh { Size = new Vector2(0.12f, 0.12f) };
+            sparkMesh.Material = new StandardMaterial3D
+            {
+                ShadingMode            = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency           = BaseMaterial3D.TransparencyEnum.Alpha,
+                BlendMode              = BaseMaterial3D.BlendModeEnum.Add,
+                VertexColorUseAsAlbedo = true, // particle ramp drives colour + fade
+                BillboardMode          = BaseMaterial3D.BillboardModeEnum.Particles,
+            };
+
+            return new GpuParticles3D
+            {
+                ProcessMaterial = mat,
+                DrawPass1       = sparkMesh,
+                Amount          = 48,
+                Lifetime        = 0.7,
+                LocalCoords     = false,
+                Emitting        = false,
+            };
         }
 
         // Called by ClientSimulation or ServerSimulation before each physics tick.
@@ -370,9 +467,29 @@ namespace HoverTank
 
             UpdateEngineAudio();
 
+            if (_feelMode)
+                UpdateFeelEffects();
+
             // Record this tick's settled transform for render interpolation.
             _prevVisualXform = _curVisualXform;
             _curVisualXform  = GlobalTransform;
+        }
+
+        // TestDrive only: spray the ember trail while skimming the ground fast.
+        // Ground contact is read from the hover rays (physics-accurate), so this
+        // lives in _PhysicsProcess; the cosmetic bank is applied in _Process.
+        private void UpdateFeelEffects()
+        {
+            int contacts = 0;
+            foreach (var ray in _hoverRays)
+                if (ray.IsColliding()) contacts++;
+            _grounded = contacts >= GroundedRayCount;
+
+            if (_sparkTrail != null)
+            {
+                float hSpeed = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
+                _sparkTrail.Emitting = _grounded && hSpeed > 6f;
+            }
         }
 
         // Render-frame interpolation: blend the visuals between the last two
@@ -383,7 +500,29 @@ namespace HoverTank
         {
             if (Freeze) return;
             float fraction = (float)Engine.GetPhysicsInterpolationFraction();
-            _visual.GlobalTransform = _prevVisualXform.InterpolateWith(_curVisualXform, fraction);
+            var xform = _prevVisualXform.InterpolateWith(_curVisualXform, fraction);
+
+            // Cosmetic bank (TestDrive feel): roll the craft into turns. Driven by
+            // sideways velocity in the hull frame plus the commanded yaw rate, so
+            // it leans both when strafing and when auto-steering through a curve.
+            // Composed on top of the interpolated pose here — never as physics —
+            // so it stays purely visual and survives the per-frame interpolation.
+            if (_feelMode)
+            {
+                // Right strafe (lateral>0) and right turn (yawRate<0 about +Y)
+                // should both roll the right side (+X) down — a negative roll
+                // about +Z. Hence -lateral and +yawRate combine with one sign.
+                float lateral = LinearVelocity.Dot(GlobalBasis.X);          // +X = right
+                float yawRate = AngularVelocity.Dot(GlobalBasis.Y);
+                float target  = Mathf.Clamp(
+                    (yawRate * 2.2f - lateral) * BankStrength, -MaxBank, MaxBank);
+                _bankAngle = Mathf.Lerp(_bankAngle, target,
+                    Mathf.Min(1f, BankResponse * (float)delta));
+                // Roll about the hull's forward axis (local Z); forward is -Z.
+                xform.Basis *= new Basis(new Vector3(0f, 0f, 1f), _bankAngle);
+            }
+
+            _visual.GlobalTransform = xform;
         }
 
         private void UpdateEngineAudio()
