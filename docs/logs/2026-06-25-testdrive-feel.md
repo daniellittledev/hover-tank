@@ -78,6 +78,30 @@ reference's dreamy pastel aesthetic.
 - **Runtime-generated shader/material**, consistent with the project's
   "no baked assets" convention — the dream material is built in C# at `_Ready`.
 
+- **Atmosphere / post pass** (`GameSetup.cs`, `project.godot`, `HoverTank.cs`)
+  Direction-neutral lighting + rendering upgrades (work for either a future
+  cel/edge or realistic-PBR direction), all still TestDrive-scoped:
+  - **ACES tonemap** in place of Filmic for a cleaner cinematic highlight
+    rolloff. (AgX was the first choice but isn't exposed in GodotSharp 4.3.0's
+    `ToneMapper` enum.)
+  - **Height fog** (`FogHeight` / `FogHeightDensity`) layers mist in the swell
+    troughs on top of the existing aerial-perspective depth fog, plus a little
+    `FogSunScatter` for glow toward the low sun.
+  - **Volumetric fog** (Forward+) so the sun rakes through the haze and the
+    emissive crests inject a faint teal glow into the air (`VolumetricFogGIInject`,
+    `VolumetricFogEmission`).
+  - **Colour grade**: `AdjustmentEnabled` with a touch more contrast/saturation
+    and a code-generated split-tone 1D LUT (teal shadows, warm highlights) via
+    `MakeSplitToneLut()` — no baked asset.
+  - **Softer key + cool fill**: the sun gets a wider penumbra
+    (`LightAngularDistance`) and lifted `ShadowOpacity`; a dim shadowless
+    `SkyFill` DirectionalLight3D adds cool skylight bounce for warm/cool contrast.
+  - **Debanding** enabled in `project.godot` (`[rendering]`) to kill banding in
+    the pastel sky + soft fog.
+  - **Vignette** folded into the existing speed-line `canvas_item` shader (one
+    pass): corners darken toward black, and a speed line overrides the vignette
+    wherever it's brighter.
+
 ## Build / verification
 
 - Installed the .NET 8 SDK via the Ubuntu archive (`apt-get install dotnet-sdk-8.0`);

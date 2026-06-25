@@ -441,8 +441,14 @@ void fragment() {
     float seg = floor(ang * 90.0);                  // 90 angular buckets
     float present = step(0.80, hash(seg));          // ~20% carry a streak
     float edge = smoothstep(0.16, 0.5, r);          // fade out toward centre
-    float a = present * edge * intensity * 0.45;    // faint
-    COLOR = vec4(line_color, a);
+    float lineA = present * edge * intensity * 0.45; // faint streaks at speed
+
+    // Constant subtle vignette: darken the corners to focus the eye. One pass —
+    // wherever a speed line is brighter than the vignette it wins, else the
+    // corner is darkened toward black.
+    float vigA = smoothstep(0.55, 0.95, r) * 0.30;
+    float useLine = step(vigA, lineA);
+    COLOR = vec4(line_color * useLine, max(vigA, lineA));
 }
 ",
             };
