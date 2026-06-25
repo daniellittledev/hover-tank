@@ -89,7 +89,10 @@ namespace HoverTank
                 AmbientLightColor   = new Color(0.70f, 0.74f, 0.86f),
                 AmbientLightEnergy  = 1.0f,
 
-                TonemapMode         = Godot.Environment.ToneMapper.Filmic,
+                // ACES gives a filmic, cinematic highlight rolloff — well suited
+                // to this emissive/bloom-heavy HDR look. (AgX isn't exposed in the
+                // 4.3 C# binding's ToneMapper enum.)
+                TonemapMode         = Godot.Environment.ToneMapper.Aces,
                 TonemapExposure     = 1.05f,
 
                 // Soft additive bloom makes the teal crests read as glowing light.
@@ -99,25 +102,77 @@ namespace HoverTank
                 GlowBlendMode       = Godot.Environment.GlowBlendModeEnum.Additive,
                 GlowHdrThreshold    = 0.85f,
 
-                // Aerial-perspective fog: distant swells fade to a teal haze,
-                // hiding the streamed-chunk horizon seam.
+                // Aerial-perspective + height fog: distant swells fade to a teal
+                // haze, and a layer of mist pools in the troughs between crests.
                 FogEnabled          = true,
+                FogMode             = Godot.Environment.FogModeEnum.Exponential,
                 FogLightColor       = new Color(0.64f, 0.76f, 0.82f),
                 FogLightEnergy      = 0.9f,
+                FogSunScatter       = 0.2f,   // slight glow toward the low sun
                 FogDensity          = 0.012f,
                 FogAerialPerspective = 0.9f,
                 FogSkyAffect        = 0.35f,
+                FogHeight           = 6f,     // mist sits below this world height…
+                FogHeightDensity    = 0.18f,  // …and thickens toward the valleys
+
+                // Volumetric fog: the low sun rakes through the haze and the
+                // emissive crests inject a faint teal glow into the air. Forward+
+                // only; ignored on other renderers.
+                VolumetricFogEnabled      = true,
+                VolumetricFogDensity      = 0.018f,
+                VolumetricFogAlbedo       = new Color(0.72f, 0.80f, 0.86f),
+                VolumetricFogEmission     = new Color(0.10f, 0.32f, 0.40f),
+                VolumetricFogEmissionEnergy = 0.4f,
+                VolumetricFogGIInject     = 0.6f,
+                VolumetricFogAnisotropy   = 0.4f,
+                VolumetricFogLength       = 180f,
+                VolumetricFogSkyAffect    = 0.3f,
+
+                // Subtle colour grade: a touch more contrast/saturation plus a
+                // split-tone LUT (teal shadows, warm highlights) for the dreamy
+                // cinematic feel. Generated in code — no baked asset.
+                AdjustmentEnabled        = true,
+                AdjustmentContrast       = 1.06f,
+                AdjustmentSaturation     = 1.10f,
+                AdjustmentBrightness     = 1.0f,
+                AdjustmentColorCorrection = MakeSplitToneLut(),
             };
             we.Environment = env;
 
             var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
             if (sun != null)
             {
-                sun.LightColor     = new Color(1.00f, 0.84f, 0.70f); // warm golden-hour
-                sun.LightEnergy    = 1.0f;
-                sun.RotationDegrees = new Vector3(-16f, 42f, 0f);    // low, raking light
-                sun.ShadowEnabled  = true;
+                sun.LightColor           = new Color(1.00f, 0.84f, 0.70f); // warm golden-hour
+                sun.LightEnergy          = 1.0f;
+                sun.RotationDegrees      = new Vector3(-16f, 42f, 0f);     // low, raking light
+                sun.ShadowEnabled        = true;
+                sun.LightAngularDistance = 1.2f;   // wider penumbra → softer shadows
+                sun.ShadowOpacity        = 0.85f;  // let a little light into shadow
             }
+
+            // Cool sky-fill from the opposite side fakes skylight bounce so
+            // shadows read blue against the warm key — the classic golden-hour
+            // contrast. Dim and shadowless so it only lifts the ambient tone.
+            var fill = new DirectionalLight3D
+            {
+                Name            = "SkyFill",
+                LightColor      = new Color(0.55f, 0.68f, 0.95f),
+                LightEnergy     = 0.35f,
+                ShadowEnabled   = false,
+                RotationDegrees = new Vector3(-30f, -140f, 0f),
+            };
+            AddChild(fill);
+        }
+
+        // Builds a 256-px 1D LUT for Environment colour correction: a gentle
+        // split-tone that pushes shadows teal and highlights warm. Asset-free,
+        // matching the project's runtime-generation convention.
+        private static GradientTexture1D MakeSplitToneLut()
+        {
+            var grad = new Gradient();
+            grad.SetColor(0, new Color(0.86f, 0.97f, 1.02f)); // shadow tint → teal/cool
+            grad.SetColor(1, new Color(1.04f, 0.98f, 0.88f)); // highlight tint → warm
+            return new GradientTexture1D { Gradient = grad, Width = 256 };
         }
 
         // ── Escape / pause ────────────────────────────────────────────────────
