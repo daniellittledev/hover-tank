@@ -24,3 +24,6 @@ desktop.ini
 ehthumbs.db
 
 .claude/worktrees/
+
+# Visual-capture harness output
+tools/shot-*.png

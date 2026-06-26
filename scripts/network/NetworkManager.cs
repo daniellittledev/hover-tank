@@ -73,8 +73,8 @@ namespace HoverTank
 			var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 						 .Instantiate<HoverTank>();
 			tank.Name = "Tank_Local";
-			tank.GlobalPosition = SpawnPoint(0f, 0f);
 			_tanksRoot.AddChild(tank);
+			tank.GlobalPosition = SpawnPoint(0f, 0f); // after AddChild: GlobalPosition needs in-tree
 
 			var handler = new LocalInputHandler
 			{
@@ -199,8 +199,8 @@ namespace HoverTank
 				var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 							 .Instantiate<HoverTank>();
 				tank.Name           = $"Tank_{peerId}";
-				tank.GlobalPosition = SpawnPoint(peerId % 4 * 4f, 0f);
 				_tanksRoot.AddChild(tank);
+				tank.GlobalPosition = SpawnPoint(peerId % 4 * 4f, 0f); // after AddChild: needs in-tree
 				_server!.RegisterTank(peerId, tank);
 
 				if (isLocalPlayer && tank.Weapons != null)
@@ -213,8 +213,8 @@ namespace HoverTank
 					var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 								 .Instantiate<HoverTank>();
 					tank.Name           = $"Tank_{peerId}";
-					tank.GlobalPosition = SpawnPoint(0f, 0f);
 					_tanksRoot.AddChild(tank);
+					tank.GlobalPosition = SpawnPoint(0f, 0f); // after AddChild: needs in-tree
 					_client!.SetLocalTank(tank);
 					_client.Camera = tank.AimCamera;
 

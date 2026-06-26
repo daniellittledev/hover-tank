@@ -235,14 +235,16 @@ namespace HoverTank
             AddChild(fill);
         }
 
-        // Builds a 256-px 1D LUT for Environment colour correction: a gentle
-        // split-tone that pushes shadows teal and highlights warm. Asset-free,
-        // matching the project's runtime-generation convention.
+        // Builds a 256-px 1D LUT for Environment colour correction: a near-identity
+        // tone curve with a gentle split-tone — cool, near-black shadows and warm
+        // highlights. The endpoints MUST span ~black..~white: a curve like
+        // 0.86..1.04 maps black up to ~0.9 and washes the whole image to near-white
+        // (this was the cause of the full-screen whiteout). Asset-free.
         private static GradientTexture1D MakeSplitToneLut()
         {
             var grad = new Gradient();
-            grad.SetColor(0, new Color(0.86f, 0.97f, 1.02f)); // shadow tint → teal/cool
-            grad.SetColor(1, new Color(1.04f, 0.98f, 0.88f)); // highlight tint → warm
+            grad.SetColor(0, new Color(0.02f, 0.03f, 0.05f)); // shadows: cool, near-black
+            grad.SetColor(1, new Color(1.00f, 0.97f, 0.90f)); // highlights: warm white
             return new GradientTexture1D { Gradient = grad, Width = 256 };
         }
 
