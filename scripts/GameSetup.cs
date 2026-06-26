@@ -81,15 +81,27 @@ namespace HoverTank
                 env.AdjustmentSaturation      = 1.10f;
                 env.AdjustmentBrightness      = 1.0f;
                 env.AdjustmentColorCorrection = MakeSplitToneLut();
+
+                // A touch more atmospheric depth: slightly denser distance fog
+                // plus a shallow ground mist that pools in the craters. Kept
+                // deliberately subtle — overdone fog hazes the scene out to white.
+                env.FogEnabled           = true;
+                env.FogDensity           = 0.005f;
+                env.FogAerialPerspective = 0.7f;
+                env.FogHeight            = 2.0f;
+                env.FogHeightDensity     = 0.04f;
             }
 
             // Warm the key sun slightly and lower its angle for longer, raking
             // shadows that reveal the terrain's shape (flat noon light hides it).
+            // A wider angular size softens the shadow penumbra with distance —
+            // soft contact-hardening shadows rather than a hard uniform edge.
             var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
             if (sun != null)
             {
-                sun.LightColor      = new Color(1.0f, 0.93f, 0.82f);
-                sun.RotationDegrees = new Vector3(-22f, 38f, 0f);
+                sun.LightColor           = new Color(1.0f, 0.93f, 0.82f);
+                sun.RotationDegrees      = new Vector3(-22f, 38f, 0f);
+                sun.LightAngularDistance = 0.6f;
             }
 
             // Cool fill from the opposite side: dim, shadowless skylight bounce so

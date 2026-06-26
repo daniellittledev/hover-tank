@@ -10,6 +10,13 @@ A low-risk, asset-free pass to lift the overall look, prompted by a "how do you 
 - **Procedural standard-terrain shader.** `TerrainGenerator.CreateStandardTerrainMaterial()` replaces the flat `StandardMaterial3D` on the combat/MP cratered terrain. Blends colour by **slope** (lighter dust on flats, darker rock on steep crater walls) and **height** (lighter crests), varies roughness with slope, and adds a faint large-scale value-noise mottle so the ground isn't one flat tone. World normal/pos from the vertex stage; asset-free.
 - **Restored hull material.** `TankMeshBuilder` now assigns a dark metallic-charcoal `MaterialOverride` in `_Ready`. The scene's format-4 reserialization had dropped the `Mat_hull`/`Mat_accent` overrides and the builder assigned none, so the hull had been rendering with Godot's flat-white default material — a regression. Charcoal kept low-saturation so the orange thruster glow stays the lone warm accent.
 
+## Follow-up: shadows + atmosphere + AA
+
+Prompted by the Reddit comment's emphasis on shadows and fog:
+
+- **Soft, higher-res shadows.** `project.godot`: 4x MSAA (`msaa_3d=2`), directional shadow `size=4096`, and `soft_shadow_filter_quality=3` for both directional and positional shadows. The sun gets `LightAngularDistance = 0.6` for a contact-hardening soft penumbra instead of a hard uniform edge.
+- **Subtle fog for depth.** In `ApplyBaselineVisuals`: distance fog density `0.003 → 0.005`, aerial perspective `0.6 → 0.7`, plus a shallow ground mist (`FogHeight = 2`, `FogHeightDensity = 0.04`) pooling in craters. Kept subtle — overdone fog is what hazed the dream atmosphere out to white.
+
 ## Not done (needs visual iteration)
 
 - **Hover dust** under the craft and **camera shake** juice were deferred — particle look/scale and shake magnitude need in-editor eyeballing to tune, which can't be done from a headless build. To add next with feedback.
