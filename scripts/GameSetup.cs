@@ -19,6 +19,11 @@ namespace HoverTank
             var nm = GetNode<NetworkManager>("/root/NetworkManager");
             nm.Initialize(GetNode<Node3D>("Tanks"));
 
+            // Tasteful baseline look for every Main.tscn mode (combat/MP/etc).
+            // TestDrive may later replace the whole environment via the dream
+            // atmosphere, but that's gated off for now, so this applies there too.
+            ApplyBaselineVisuals();
+
             var mode = GameState.Instance.Mode;
             switch (mode)
             {
@@ -55,6 +60,48 @@ namespace HoverTank
 
             _pauseMenu = new PauseMenu();
             AddChild(_pauseMenu);
+        }
+
+        // ── Baseline visuals (all modes) ──────────────────────────────────────
+        // Low-risk, asset-free polish applied on top of Main.tscn's environment:
+        //  • a gentle split-tone colour grade (teal shadows / warm highlights)
+        //    plus a touch more contrast and saturation, so the image reads as
+        //    deliberately graded rather than flat;
+        //  • a cool, shadowless fill light from behind-opposite the sun, which
+        //    fakes skylight bounce and separates the tank silhouette from the
+        //    terrain — the single biggest readability win for a one-sun scene.
+        // All generated in code to match the project's no-baked-assets convention.
+        private void ApplyBaselineVisuals()
+        {
+            var we = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
+            if (we?.Environment is Godot.Environment env)
+            {
+                env.AdjustmentEnabled         = true;
+                env.AdjustmentContrast        = 1.06f;
+                env.AdjustmentSaturation      = 1.10f;
+                env.AdjustmentBrightness      = 1.0f;
+                env.AdjustmentColorCorrection = MakeSplitToneLut();
+            }
+
+            // Warm the key sun slightly and lower its angle for longer, raking
+            // shadows that reveal the terrain's shape (flat noon light hides it).
+            var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
+            if (sun != null)
+            {
+                sun.LightColor      = new Color(1.0f, 0.93f, 0.82f);
+                sun.RotationDegrees = new Vector3(-22f, 38f, 0f);
+            }
+
+            // Cool fill from the opposite side: dim, shadowless skylight bounce so
+            // shadows read blue against the warm key — classic key/fill contrast.
+            AddChild(new DirectionalLight3D
+            {
+                Name            = "SkyFill",
+                LightColor      = new Color(0.55f, 0.68f, 0.95f),
+                LightEnergy     = 0.35f,
+                ShadowEnabled   = false,
+                RotationDegrees = new Vector3(-28f, -140f, 0f),
+            });
         }
 
         // ── TestDrive "dream" atmosphere ──────────────────────────────────────
