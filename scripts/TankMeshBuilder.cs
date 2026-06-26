@@ -16,7 +16,21 @@ namespace HoverTank
 		public override void _Ready()
 		{
 			Mesh = BuildHullMesh();
+			// The scene carries no material override for the hull (and the mesh is
+			// rebuilt here anyway), so assign one in code — otherwise the tank
+			// renders with Godot's flat-white default material.
+			MaterialOverride = CreateHullMaterial();
 		}
+
+		// Dark metallic charcoal hull. Kept low-saturation so the orange thruster
+		// glow and any HUD accents read as the lone warm highlight on the craft.
+		private static StandardMaterial3D CreateHullMaterial() => new()
+		{
+			AlbedoColor      = new Color(0.12f, 0.12f, 0.14f),
+			Metallic         = 0.70f,
+			MetallicSpecular = 0.60f,
+			Roughness        = 0.42f,
+		};
 
 		private static void Tri(List<Vector3> v, List<Vector3> n, List<Vector2> u,
 			Vector3 a, Vector3 b, Vector3 c)
