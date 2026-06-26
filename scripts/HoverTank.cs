@@ -597,19 +597,23 @@ namespace HoverTank
             // so it stays purely visual and survives the per-frame interpolation.
             if (_feelMode)
             {
-                // Lean into turns, but ONLY when carving a fast curve — a gentle
-                // bank at speed, not a roll during low-speed maneuvering. Driven by
-                // yaw rate alone (turning) and gated by a high-speed factor that
-                // is squared so it stays near zero until the craft is really moving.
-                // A right turn (yawRate<0 about +Y) rolls the right side (+X) down,
-                // a negative roll about +Z — hence the matching sign.
+                // Two contributions, both rolling the right side (+X) down as a
+                // negative roll about +Z:
+                //  • Turn bank: lean into a curve, but ONLY when carving fast —
+                //    yaw-driven and gated by a squared high-speed factor so it
+                //    stays near zero until the craft is really moving.
+                //  • Strafe lean: a gentle, always-on lean proportional to how
+                //    hard the craft is sliding sideways (small by nature, so it
+                //    reads as natural weight shift rather than a big roll).
                 float hSpeed  = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
                 float speedFr = MaxSpeed > 8f
                     ? Mathf.Clamp((hSpeed - 8f) / (MaxSpeed - 8f), 0f, 1f)
                     : 0f;
-                float yawRate = AngularVelocity.Dot(GlobalBasis.Y);
+                float yawRate = AngularVelocity.Dot(GlobalBasis.Y); // +Y = left turn
+                float lateral = LinearVelocity.Dot(GlobalBasis.X);  // +X = right
                 float target  = Mathf.Clamp(
-                    yawRate * 2.2f * BankStrength * speedFr * speedFr, -MaxBank, MaxBank);
+                    (yawRate * 2.2f * speedFr * speedFr - lateral * 0.35f) * BankStrength,
+                    -MaxBank, MaxBank);
                 _bankAngle = Mathf.Lerp(_bankAngle, target,
                     Mathf.Min(1f, BankResponse * (float)delta));
                 // Roll about the hull's forward axis (local Z); forward is -Z.
