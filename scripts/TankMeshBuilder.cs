@@ -22,15 +22,33 @@ namespace HoverTank
 			MaterialOverride = CreateHullMaterial();
 		}
 
-		// Dark metallic charcoal hull. Kept low-saturation so the orange thruster
-		// glow and any HUD accents read as the lone warm highlight on the craft.
-		private static StandardMaterial3D CreateHullMaterial() => new()
+		// Near-black metallic hull with a glowing cyan fresnel rim, so the craft
+		// reads as a Tron-style vehicle — a dark body outlined in neon light that
+		// blooms under the scene's HDR glow. The rim is fresnel-based (brightest
+		// where the surface turns away from the view), tracing the silhouette.
+		private static ShaderMaterial CreateHullMaterial()
 		{
-			AlbedoColor      = new Color(0.12f, 0.12f, 0.14f),
-			Metallic         = 0.70f,
-			MetallicSpecular = 0.60f,
-			Roughness        = 0.42f,
-		};
+			var shader = new Shader
+			{
+				Code = @"
+shader_type spatial;
+
+uniform vec3  albedo    : source_color = vec3(0.02, 0.025, 0.035);
+uniform vec3  rim_color : source_color = vec3(0.10, 0.80, 1.00);
+uniform float rim_energy = 1.3;
+
+void fragment() {
+    ALBEDO    = albedo;
+    METALLIC  = 0.6;
+    ROUGHNESS = 0.35;
+    // High exponent → a thin crisp edge line, not a broad fill that blooms white.
+    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 6.0);
+    EMISSION  = rim_color * fres * rim_energy;
+}
+",
+			};
+			return new ShaderMaterial { Shader = shader };
+		}
 
 		private static void Tri(List<Vector3> v, List<Vector3> n, List<Vector2> u,
 			Vector3 a, Vector3 b, Vector3 c)

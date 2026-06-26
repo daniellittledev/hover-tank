@@ -434,7 +434,7 @@ namespace HoverTank
                 FractalLacunarity = 2.0f,
             };
 
-            _infiniteMaterial = CreateDreamTerrainMaterial();
+            _infiniteMaterial = CreateTronTerrainMaterial();
 
             // Pre-build a block of chunks around the origin so the player tank
             // (spawned after the terrain's _Ready) has solid ground under it on
@@ -688,17 +688,16 @@ void fragment() {
             return new ShaderMaterial { Shader = shader };
         }
 
-        // Dream-terrain ShaderMaterial used for the TestDrive sandbox. A matte
-        // dark-slate surface with faint panel seams (from UV), whose upper crests
-        // emit teal light ramped by world height, plus a fresnel rim so ridge
-        // edges read as glowing wireframe under the scene's bloom + fog — the
-        // look of the reference video. One material is shared across all chunks.
+        // Tron-style terrain ShaderMaterial for the TestDrive sandbox: a near-black
+        // teal surface lit only by emissives — a neon cyan world-space grid (Tron
+        // panel lines that stay put as you drive), teal crest rims via a height
+        // ramp + fresnel, and orange "energy" pooling in the deep troughs. The
+        // dark base + HDR-thresholded bloom on the emissives gives the high-contrast
+        // teal/orange look. One material shared across all chunks.
         //
-        // world_height comes straight from VERTEX.y: chunk roots sit at y=0 and
-        // heights are stored as world metres, so local vertex Y == world height.
-        // NORMAL/VIEW are view-space in Godot spatial shaders, which is exactly
-        // what the fresnel term needs.
-        private ShaderMaterial CreateDreamTerrainMaterial()
+        // world_pos comes from MODEL_MATRIX*VERTEX (chunk roots at y=0, heights in
+        // world metres). NORMAL/VIEW are view-space, which is what fresnel needs.
+        private ShaderMaterial CreateTronTerrainMaterial()
         {
             var shader = new Shader
             {
@@ -706,41 +705,52 @@ void fragment() {
 shader_type spatial;
 render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 
-uniform vec3  base_color  : source_color = vec3(0.09, 0.10, 0.15);
-uniform vec3  grid_color  : source_color = vec3(0.04, 0.05, 0.09);
-uniform vec3  crest_color : source_color = vec3(0.22, 0.85, 1.00);
-uniform float glow_low    = 26.0;   // world height where crest glow begins
-uniform float glow_high   = 36.0;   // world height of full crest glow
-uniform float glow_energy = 1.1;
-uniform float grid_width  = 0.035;
+uniform vec3  base_color   : source_color = vec3(0.015, 0.050, 0.060); // near-black teal
+uniform vec3  grid_color   : source_color = vec3(0.05, 0.85, 1.00);    // neon cyan grid
+uniform vec3  crest_color  : source_color = vec3(0.10, 0.80, 1.00);    // teal crest
+uniform vec3  valley_color : source_color = vec3(1.00, 0.42, 0.05);    // orange energy
+uniform float crest_low    = 24.0;
+uniform float crest_high   = 38.0;
+uniform float valley_low   = -24.0;  // deepest troughs glow most
+uniform float valley_high  = -6.0;
+uniform float grid_period  = 8.0;    // world metres between grid lines
+uniform float grid_width   = 0.04;
+uniform float grid_energy   = 1.6;
+uniform float crest_energy  = 1.8;
+uniform float valley_energy = 1.3;
 
-varying float world_height;
-varying vec2  grid_uv;
+varying vec3 world_pos;
 
 void vertex() {
-    world_height = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
-    grid_uv      = UV * 0.5; // one panel seam per terrain cell
+    world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
-    // Faint panel-seam grid.
-    vec2  g    = abs(fract(grid_uv) - 0.5);
-    float line = smoothstep(0.5 - grid_width, 0.5, max(g.x, g.y));
-    ALBEDO     = mix(base_color, grid_color, line);
-    ROUGHNESS  = 0.88;
-    METALLIC   = 0.0;
+    ALBEDO    = base_color;
+    ROUGHNESS = 0.65;
+    METALLIC  = 0.0;
 
-    // Crest glow: height ramp + fresnel rim on ridge edges.
-    float h    = smoothstep(glow_low, glow_high, world_height);
+    // World-space neon grid (Tron panel seams) — stays put as the craft moves.
+    vec2  gw   = abs(fract(world_pos.xz / grid_period) - 0.5);
+    float grid = smoothstep(0.5 - grid_width, 0.5, max(gw.x, gw.y));
+
+    // Teal crest glow: height ramp + fresnel rim on ridge edges.
+    float h    = smoothstep(crest_low, crest_high, world_pos.y);
     float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 3.0);
-    EMISSION   = crest_color * (h * glow_energy + h * fres * glow_energy * 1.5);
+
+    // Orange energy pooling in the deep troughs.
+    float v    = 1.0 - smoothstep(valley_low, valley_high, world_pos.y);
+
+    EMISSION = grid_color   * grid * grid_energy
+             + crest_color  * (h * crest_energy + h * fres * crest_energy * 0.8)
+             + valley_color * v * valley_energy;
 }
 ",
             };
 
             var mat = new ShaderMaterial { Shader = shader };
-            mat.SetShaderParameter("glow_low",  CrestGlowLow);
-            mat.SetShaderParameter("glow_high", CrestGlowHigh);
+            mat.SetShaderParameter("crest_low",  CrestGlowLow);
+            mat.SetShaderParameter("crest_high", CrestGlowHigh);
             return mat;
         }
     }
