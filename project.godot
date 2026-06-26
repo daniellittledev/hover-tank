@@ -179,7 +179,4 @@ camera_third_person={
 
 [rendering]
 
-; Debanding dithers the framebuffer to kill colour banding in smooth
-; gradients — important for the pastel sky and soft fog, basically free.
 anti_aliasing/quality/use_debanding=true
-

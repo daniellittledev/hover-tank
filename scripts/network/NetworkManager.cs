@@ -51,6 +51,18 @@ namespace HoverTank
 			_tanksRoot = tanksRoot;
 		}
 
+		// Spawn position with enough clearance above the terrain for the hover
+		// springs to catch the tank. The infinite TestDrive dunes can rise tens of
+		// metres, so a fixed Y would bury the tank — probe the terrain instead.
+		private Vector3 SpawnPoint(float x, float z)
+		{
+			float groundY = 0f;
+			if (_tanksRoot != null
+				&& _tanksRoot.GetTree().GetFirstNodeInGroup("terrain") is TerrainGenerator terrain)
+				groundY = terrain.HeightAt(x, z);
+			return new Vector3(x, groundY + 5f, z);
+		}
+
 		// ── Connection setup ─────────────────────────────────────────────────
 
 		// Single-player: no network, one local tank driven by LocalInputHandler.
@@ -61,7 +73,7 @@ namespace HoverTank
 			var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 						 .Instantiate<HoverTank>();
 			tank.Name = "Tank_Local";
-			tank.GlobalPosition = new Vector3(0f, 5f, 0f);
+			tank.GlobalPosition = SpawnPoint(0f, 0f);
 			_tanksRoot.AddChild(tank);
 
 			var handler = new LocalInputHandler
@@ -187,7 +199,7 @@ namespace HoverTank
 				var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 							 .Instantiate<HoverTank>();
 				tank.Name           = $"Tank_{peerId}";
-				tank.GlobalPosition = new Vector3(peerId % 4 * 4f, 5f, 0f);
+				tank.GlobalPosition = SpawnPoint(peerId % 4 * 4f, 0f);
 				_tanksRoot.AddChild(tank);
 				_server!.RegisterTank(peerId, tank);
 
@@ -201,7 +213,7 @@ namespace HoverTank
 					var tank = GD.Load<PackedScene>("res://scenes/HoverTank.tscn")
 								 .Instantiate<HoverTank>();
 					tank.Name           = $"Tank_{peerId}";
-					tank.GlobalPosition = new Vector3(0f, 5f, 0f);
+					tank.GlobalPosition = SpawnPoint(0f, 0f);
 					_tanksRoot.AddChild(tank);
 					_client!.SetLocalTank(tank);
 					_client.Camera = tank.AimCamera;

@@ -260,15 +260,13 @@ namespace HoverTank
         // degrees added at full MaxSpeed on top of the base TestDrive FOV.
         [Export] public float MaxFovKick = 12f;
         private float _baseFov;
-        // Eased 0..1 speed fraction driving FOV kick, speed lines and glow pulse.
+        // Eased 0..1 speed fraction driving FOV kick and glow pulse.
         private float _speedIntensity;
         // Under-craft hover glow (boosted + speed-pulsed in feel mode).
         private OmniLight3D? _hoverGlowLight;
         private float _glowBase;
         // One-shot ember burst fired on a hard landing.
         private GpuParticles3D? _landingBurst;
-        // Full-screen radial speed-line overlay material (intensity driven by speed).
-        private ShaderMaterial? _speedLines;
         // Landing detection: previous grounded state + last tick's vertical velocity.
         private bool _wasGrounded;
         private float _prevVertVel;
@@ -410,57 +408,10 @@ namespace HoverTank
             if (_hoverGlowLight != null)
             {
                 _hoverGlowLight.LightColor  = new Color(0.40f, 0.85f, 1.0f);
-                _glowBase                   = 4.0f;
+                _glowBase                   = 1.5f;
                 _hoverGlowLight.LightEnergy = _glowBase;
-                _hoverGlowLight.OmniRange   = 6.0f;
+                _hoverGlowLight.OmniRange   = 4.0f;
             }
-
-            _speedLines = CreateSpeedLineOverlay();
-        }
-
-        // Builds a full-screen radial speed-line overlay on its own CanvasLayer
-        // (parented to the tank, so it lives and dies with the player) and returns
-        // its ShaderMaterial. The tank pushes a 0..1 `intensity` into it each
-        // frame; the lines are faint, edge-biased streaks that only show at speed.
-        private ShaderMaterial CreateSpeedLineOverlay()
-        {
-            var shader = new Shader
-            {
-                Code = @"
-shader_type canvas_item;
-
-uniform float intensity : hint_range(0.0, 1.0) = 0.0;
-uniform vec3  line_color : source_color = vec3(0.85, 0.93, 1.0);
-
-float hash(float n) { return fract(sin(n) * 43758.5453123); }
-
-void fragment() {
-    vec2  p   = UV - 0.5;
-    float r   = length(p);
-    float ang = atan(p.y, p.x) / 6.2831853 + 0.5;  // 0..1 around the circle
-    float seg = floor(ang * 90.0);                  // 90 angular buckets
-    float present = step(0.80, hash(seg));          // ~20% carry a streak
-    float edge = smoothstep(0.16, 0.5, r);          // fade out toward centre
-    float lineA = present * edge * intensity * 0.45; // faint streaks at speed
-
-    // Constant subtle vignette: darken the corners to focus the eye. One pass —
-    // wherever a speed line is brighter than the vignette it wins, else the
-    // corner is darkened toward black.
-    float vigA = smoothstep(0.55, 0.95, r) * 0.30;
-    float useLine = step(vigA, lineA);
-    COLOR = vec4(line_color * useLine, max(vigA, lineA));
-}
-",
-            };
-            var mat = new ShaderMaterial { Shader = shader };
-
-            var rect = new ColorRect { Material = mat, MouseFilter = Control.MouseFilterEnum.Ignore };
-            rect.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-
-            var layer = new CanvasLayer { Layer = 5, Name = "SpeedLines" };
-            layer.AddChild(rect);
-            AddChild(layer);
-            return mat;
         }
 
         // Orange→yellow ember burst that trails the craft. LocalCoords = false so
@@ -646,13 +597,19 @@ void fragment() {
             // so it stays purely visual and survives the per-frame interpolation.
             if (_feelMode)
             {
-                // Right strafe (lateral>0) and right turn (yawRate<0 about +Y)
-                // should both roll the right side (+X) down — a negative roll
-                // about +Z. Hence -lateral and +yawRate combine with one sign.
-                float lateral = LinearVelocity.Dot(GlobalBasis.X);          // +X = right
+                // Lean into turns, but ONLY when carving a fast curve — a gentle
+                // bank at speed, not a roll during low-speed maneuvering. Driven by
+                // yaw rate alone (turning) and gated by a high-speed factor that
+                // is squared so it stays near zero until the craft is really moving.
+                // A right turn (yawRate<0 about +Y) rolls the right side (+X) down,
+                // a negative roll about +Z — hence the matching sign.
+                float hSpeed  = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
+                float speedFr = MaxSpeed > 8f
+                    ? Mathf.Clamp((hSpeed - 8f) / (MaxSpeed - 8f), 0f, 1f)
+                    : 0f;
                 float yawRate = AngularVelocity.Dot(GlobalBasis.Y);
                 float target  = Mathf.Clamp(
-                    (yawRate * 2.2f - lateral) * BankStrength, -MaxBank, MaxBank);
+                    yawRate * 2.2f * BankStrength * speedFr * speedFr, -MaxBank, MaxBank);
                 _bankAngle = Mathf.Lerp(_bankAngle, target,
                     Mathf.Min(1f, BankResponse * (float)delta));
                 // Roll about the hull's forward axis (local Z); forward is -Z.
@@ -665,9 +622,9 @@ void fragment() {
                 UpdateFeelVisuals((float)delta);
         }
 
-        // Render-frame speed reactions (TestDrive feel): a FOV kick, the speed-line
-        // overlay, and an under-craft glow pulse, all scaled by an eased 0..1 speed
-        // fraction. Visual only — no physics — so it's safe in _Process.
+        // Render-frame speed reactions (TestDrive feel): a FOV kick and an
+        // under-craft glow pulse, both scaled by an eased 0..1 speed fraction.
+        // Visual only — no physics — so it's safe in _Process.
         private void UpdateFeelVisuals(float dt)
         {
             float hSpeed   = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
@@ -680,10 +637,8 @@ void fragment() {
                 AimCamera.Fov = Mathf.Lerp(
                     AimCamera.Fov, _baseFov + MaxFovKick * _speedIntensity, Mathf.Min(1f, 6f * dt));
 
-            _speedLines?.SetShaderParameter("intensity", _speedIntensity);
-
             if (_hoverGlowLight != null)
-                _hoverGlowLight.LightEnergy = _glowBase + _speedIntensity * 2.5f;
+                _hoverGlowLight.LightEnergy = _glowBase + _speedIntensity * 1.0f;
         }
 
         private void UpdateEngineAudio()

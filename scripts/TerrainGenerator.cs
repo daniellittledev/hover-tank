@@ -59,8 +59,8 @@ namespace HoverTank
         [Export] public float InfiniteHillScale = 40f;
         // World height (metres) at which terrain crests begin to glow teal, and
         // the height of full glow. Drives the emission ramp in the dream shader.
-        [Export] public float CrestGlowLow  = 10f;
-        [Export] public float CrestGlowHigh = 26f;
+        [Export] public float CrestGlowLow  = 26f;
+        [Export] public float CrestGlowHigh = 36f;
 
         // Runtime state for infinite mode.
         private bool _infiniteMode;
@@ -70,8 +70,18 @@ namespace HoverTank
         private (int, int) _lastCenterChunk = (int.MinValue, int.MinValue);
         private Node3D? _player;
 
+        // Finite-mode height grid, kept so HeightAt() can answer spawn queries
+        // without a physics raycast (collision isn't flushed on spawn frame).
+        private float[,]? _finiteHeights;
+        private float _finiteOrigin;
+        private int _finiteVerts;
+
         public override void _Ready()
         {
+            // So other systems (e.g. NetworkManager spawn) can find us to probe
+            // terrain height before dropping a tank in.
+            AddToGroup("terrain");
+
             // TestDrive = infinite procedural sandbox with matte panel-grid surface.
             var gs = GameState.Instance;
             _infiniteMode = gs != null
@@ -82,6 +92,25 @@ namespace HoverTank
                 SetupInfiniteTerrain();
             else
                 GenerateTerrain();
+        }
+
+        // World-space terrain height (metres) at (x, z), valid in both finite and
+        // infinite modes the moment _Ready has run — no physics tick required.
+        // Used to spawn the tank safely above the surface; falls back to 0 if the
+        // finite grid hasn't been built or the point lies outside it.
+        public float HeightAt(float x, float z)
+        {
+            if (_infiniteMode)
+                return SampleHeight(x, z);
+
+            if (_finiteHeights == null) return 0f;
+
+            // Nearest-vertex sample of the stored grid (good enough for spawn).
+            int gx = Mathf.RoundToInt((x + _finiteOrigin) / CellSize);
+            int gz = Mathf.RoundToInt((z + _finiteOrigin) / CellSize);
+            if (gx < 0 || gz < 0 || gx >= _finiteVerts || gz >= _finiteVerts)
+                return 0f;
+            return _finiteHeights[gx, gz];
         }
 
         public override void _Process(double delta)
@@ -109,6 +138,11 @@ namespace HoverTank
 
             // ── Step 2: carve craters ───────────────────────────────────────
             CarveCraters(heights, verts, origin);
+
+            // Keep the finished grid for HeightAt() spawn queries.
+            _finiteHeights = heights;
+            _finiteOrigin  = origin;
+            _finiteVerts   = verts;
 
             // ── Step 3: build mesh ──────────────────────────────────────────
             var mesh = BuildMesh(heights, verts, origin);
@@ -625,9 +659,9 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 uniform vec3  base_color  : source_color = vec3(0.09, 0.10, 0.15);
 uniform vec3  grid_color  : source_color = vec3(0.04, 0.05, 0.09);
 uniform vec3  crest_color : source_color = vec3(0.22, 0.85, 1.00);
-uniform float glow_low    = 10.0;   // world height where crest glow begins
-uniform float glow_high   = 26.0;   // world height of full crest glow
-uniform float glow_energy = 2.6;
+uniform float glow_low    = 26.0;   // world height where crest glow begins
+uniform float glow_high   = 36.0;   // world height of full crest glow
+uniform float glow_energy = 1.1;
 uniform float grid_width  = 0.035;
 
 varying float world_height;

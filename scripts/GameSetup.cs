@@ -64,8 +64,18 @@ namespace HoverTank
         // peach→lavender sky, warm low sun, and thick aerial-perspective fog that
         // fades distant swells to teal-grey, plus stronger additive bloom so the
         // terrain's emissive crests glow like neon ridgelines.
+        //
+        // DISABLED by default: as authored this environment washed the whole
+        // screen out to white in TestDrive. Until the offending setting (most
+        // likely the volumetric fog or the low-threshold additive glow) is
+        // isolated and retuned, leave it off so TestDrive uses Main.tscn's plain
+        // environment. Flip the export to iterate on it.
+        [Export] public bool DreamAtmosphereEnabled = false;
+
         private void ApplyDreamAtmosphere()
         {
+            if (!DreamAtmosphereEnabled) return;
+
             var we = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
             if (we == null) return;
 
@@ -96,11 +106,13 @@ namespace HoverTank
                 TonemapExposure     = 1.05f,
 
                 // Soft additive bloom makes the teal crests read as glowing light.
+                // Kept restrained: only genuine HDR highlights bloom, so the screen
+                // doesn't wash out (threshold high, intensity/bloom low).
                 GlowEnabled         = true,
-                GlowIntensity       = 0.55f,
-                GlowBloom           = 0.12f,
+                GlowIntensity       = 0.25f,
+                GlowBloom           = 0.04f,
                 GlowBlendMode       = Godot.Environment.GlowBlendModeEnum.Additive,
-                GlowHdrThreshold    = 0.85f,
+                GlowHdrThreshold    = 1.1f,
 
                 // Aerial-perspective + height fog: distant swells fade to a teal
                 // haze, and a layer of mist pools in the troughs between crests.
