@@ -104,6 +104,14 @@ namespace HoverTank
             _shakeAmplitude = Mathf.Max(_shakeAmplitude, amplitude);
         }
 
+        // Sets the third-person orbit pitch (radians; higher = camera higher,
+        // looking down more). Clamped to the active mode's pitch range. Used by
+        // HoverTank.ApplyTestDriveFeel to start from a raised, looking-down vantage.
+        public void SetOrbitPitch(float pitch)
+        {
+            CurrentPitch = Mathf.Clamp(pitch, PitchMinForMode, PitchMaxForMode);
+        }
+
         public override void _Ready()
         {
             _tank = GetNodeOrNull<HoverTank>(_tankPath);

@@ -385,13 +385,16 @@ namespace HoverTank
             JumpImpulse      = 4.5f;
             JumpSustainForce = 26f;
 
-            // Lower, closer, wider chase view for a sense of speed.
+            // Raised, looking-down chase view: higher vantage angled down onto the
+            // tank rather than sitting straight behind it.
             if (AimCamera != null)
             {
                 AimCamera.OrbitRadius       = 6.5f;
-                AimCamera.OrbitCenterHeight = 1.1f;
+                AimCamera.OrbitCenterHeight = 1.4f;
                 AimCamera.Fov               = 82f;
                 _baseFov                    = 82f;
+                AimCamera.PitchMax          = 1.0f;   // allow a steeper top-down look
+                AimCamera.SetOrbitPitch(0.72f);        // ~41° down, well above the tank
             }
 
             _sparkTrail = CreateSparkTrail();
@@ -406,6 +409,11 @@ namespace HoverTank
             // is a clean shape with only a soft underglow, no glowing balls.
             if (GetNodeOrNull<Node3D>("Visual/Thruster") is Node3D thruster)
                 thruster.Visible = false;
+
+            // Hide the turret + barrel too: the reference craft is a clean smooth
+            // lens with nothing mounted on top. (Combat modes keep it.)
+            if (GetNodeOrNull<Node3D>("Visual/Turret") is Node3D turret)
+                turret.Visible = false;
 
             // Keep a soft white-cyan underglow beneath the craft (the bright
             // bottom-edge light in the reference), pulsed gently with speed.
