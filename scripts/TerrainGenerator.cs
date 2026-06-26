@@ -148,13 +148,7 @@ namespace HoverTank
             var mesh = BuildMesh(heights, verts, origin);
 
             var meshInst = new MeshInstance3D { Mesh = mesh };
-            var mat = new StandardMaterial3D
-            {
-                AlbedoColor = new Color(0.44f, 0.41f, 0.37f),
-                Roughness = 0.95f,
-                Metallic = 0.0f,
-            };
-            meshInst.SetSurfaceOverrideMaterial(0, mat);
+            meshInst.SetSurfaceOverrideMaterial(0, CreateStandardTerrainMaterial());
             AddChild(meshInst);
 
             // ── Step 4: physics collision via HeightMapShape3D ──────────────
@@ -636,6 +630,62 @@ namespace HoverTank
             var mesh = new ArrayMesh();
             mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
             return mesh;
+        }
+
+        // Standard (combat/MP) terrain material. Instead of one flat albedo, it
+        // blends by slope and height — lighter dust on flats and crests, darker
+        // rock on steep crater walls — varies roughness with slope, and adds a
+        // faint large-scale mottle so the ground doesn't read as a single flat
+        // tone. World normal/position come from the vertex stage. Asset-free.
+        private static ShaderMaterial CreateStandardTerrainMaterial()
+        {
+            var shader = new Shader
+            {
+                Code = @"
+shader_type spatial;
+
+uniform vec3  valley_color : source_color = vec3(0.40, 0.37, 0.32);
+uniform vec3  slope_color  : source_color = vec3(0.26, 0.24, 0.22);
+uniform vec3  crest_color  : source_color = vec3(0.56, 0.53, 0.47);
+uniform float height_low  = -3.0;
+uniform float height_high = 12.0;
+
+varying vec3 world_normal;
+varying vec3 world_pos;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i),            b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void vertex() {
+    world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+    world_pos    = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+    float slope = 1.0 - clamp(world_normal.y, 0.0, 1.0); // 0 flat .. 1 vertical
+    vec3  col   = mix(valley_color, slope_color, smoothstep(0.22, 0.6, slope));
+
+    float hf = smoothstep(height_low, height_high, world_pos.y);
+    col = mix(col, crest_color, hf * 0.35);
+
+    // Faint large-scale mottle to break up flat tone.
+    float n = vnoise(world_pos.xz * 0.08);
+    col *= 0.92 + 0.16 * n;
+
+    ALBEDO    = col;
+    ROUGHNESS = mix(0.95, 0.78, slope);
+    METALLIC  = 0.0;
+}
+",
+            };
+            return new ShaderMaterial { Shader = shader };
         }
 
         // Dream-terrain ShaderMaterial used for the TestDrive sandbox. A matte
