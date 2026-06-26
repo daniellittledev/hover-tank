@@ -34,7 +34,7 @@ namespace HoverTank
                     if (GameState.Instance.SinglePlayerMode == SinglePlayerMode.StandardWaves)
                         AddChild(new WaveManager { Name = "WaveManager" });
                     else
-                        ApplyTronAtmosphere(); // TestDrive: dark teal/orange Tron look
+                        ApplyDuskAtmosphere(); // TestDrive: pastel sunset + teal-haze sandbox
                     break;
 
                 case GameMode.NetworkHost:
@@ -116,25 +116,23 @@ namespace HoverTank
             });
         }
 
-        // ── TestDrive Tron atmosphere ─────────────────────────────────────────
-        // Replaces Main.tscn's environment for the TestDrive sandbox with a dark
-        // teal "Tron" world: near-black teal sky + ambient, punchy saturation and
-        // a teal-shadow / orange-highlight grade, and HDR-thresholded additive
-        // bloom so ONLY the emissives (the terrain's neon grid + crests, the
-        // orange trough energy, the craft's glows) read as light against the dark.
-        // Combat/MP modes keep Main.tscn's environment.
-        private void ApplyTronAtmosphere()
+        // ── TestDrive dusk atmosphere ─────────────────────────────────────────
+        // Soft, atmospheric sandbox look (per reference): a pastel sunset sky —
+        // lavender zenith fading to a warm orange horizon — with distant dunes
+        // fading into a teal-blue haze via aerial fog. Bright and airy, not the
+        // dark neon of the earlier Tron attempt. Combat/MP keep Main.tscn's env.
+        private void ApplyDuskAtmosphere()
         {
             var we = GetNodeOrNull<WorldEnvironment>("WorldEnvironment");
             if (we == null) return;
 
             var sky = new ProceduralSkyMaterial
             {
-                SkyTopColor        = new Color(0.01f, 0.03f, 0.05f), // near-black teal zenith
-                SkyHorizonColor    = new Color(0.03f, 0.12f, 0.15f), // dim teal horizon glow
-                SkyCurve           = 0.15f,
-                GroundHorizonColor = new Color(0.02f, 0.08f, 0.10f),
-                GroundBottomColor  = new Color(0.01f, 0.02f, 0.03f),
+                SkyTopColor        = new Color(0.52f, 0.55f, 0.72f), // soft lavender zenith
+                SkyHorizonColor    = new Color(0.98f, 0.80f, 0.66f), // warm sunset orange
+                SkyCurve           = 0.09f,
+                GroundHorizonColor = new Color(0.70f, 0.66f, 0.64f),
+                GroundBottomColor  = new Color(0.22f, 0.26f, 0.32f),
             };
 
             we.Environment = new Godot.Environment
@@ -142,60 +140,49 @@ namespace HoverTank
                 BackgroundMode      = Godot.Environment.BGMode.Sky,
                 Sky                 = new Sky { SkyMaterial = sky },
                 AmbientLightSource  = Godot.Environment.AmbientSource.Sky,
-                AmbientLightSkyContribution = 0.7f,
-                AmbientLightColor   = new Color(0.10f, 0.22f, 0.26f), // teal ambient
-                AmbientLightEnergy  = 0.9f,
+                AmbientLightSkyContribution = 0.8f,
+                AmbientLightEnergy  = 1.0f,
 
                 TonemapMode         = Godot.Environment.ToneMapper.Aces,
                 TonemapExposure     = 1.0f,
 
-                // Additive bloom, HDR-thresholded so only emissives (> ~1.0) bloom
-                // — the dark surfaces stay dark. This is the neon glow.
+                // Gentle bloom — just lifts the craft underglow and sky highlights.
                 GlowEnabled         = true,
-                GlowIntensity       = 0.8f,
-                GlowStrength        = 1.1f,
-                GlowBloom           = 0.10f,
+                GlowIntensity       = 0.3f,
+                GlowBloom           = 0.05f,
                 GlowBlendMode       = Godot.Environment.GlowBlendModeEnum.Additive,
                 GlowHdrThreshold    = 1.0f,
 
-                // Thin teal depth fog — fades distant dunes without hazing out.
+                // Teal-blue aerial fog: distant dunes fade to a teal haze while the
+                // sky keeps its sunset colour — low aerial-perspective so the fog
+                // stays teal instead of taking the orange sky tint.
                 FogEnabled           = true,
                 FogMode              = Godot.Environment.FogModeEnum.Exponential,
-                FogLightColor        = new Color(0.05f, 0.18f, 0.22f),
-                FogLightEnergy       = 0.6f,
-                FogDensity           = 0.006f,
-                FogAerialPerspective = 0.5f,
-                FogSkyAffect         = 0.2f,
+                FogLightColor        = new Color(0.40f, 0.60f, 0.70f), // teal-blue
+                FogLightEnergy       = 1.0f,
+                FogDensity           = 0.010f,
+                FogAerialPerspective = 0.15f,
+                FogSkyAffect         = 0.0f,
 
-                // Teal-shadow / orange-highlight grade with punchy saturation.
+                // Subtle grade: a little contrast/saturation + cool-shadow/warm-
+                // highlight tone for cohesion. Endpoints span ~black..white.
                 AdjustmentEnabled         = true,
-                AdjustmentContrast        = 1.10f,
-                AdjustmentSaturation      = 1.22f,
+                AdjustmentContrast        = 1.05f,
+                AdjustmentSaturation      = 1.10f,
                 AdjustmentBrightness      = 1.0f,
-                AdjustmentColorCorrection = MakeTealOrangeLut(),
+                AdjustmentColorCorrection = MakeSplitToneLut(),
             };
 
-            // Dim, cool key just for dune form — most of the light is emissive.
+            // Warm, low sunset key for soft directional shading on the dunes.
             var sun = GetNodeOrNull<DirectionalLight3D>("Sun");
             if (sun != null)
             {
-                sun.LightColor           = new Color(0.55f, 0.80f, 0.95f); // cool cyan
-                sun.LightEnergy          = 0.45f;
-                sun.RotationDegrees      = new Vector3(-30f, 35f, 0f);
+                sun.LightColor           = new Color(1.0f, 0.86f, 0.72f);
+                sun.LightEnergy          = 1.0f;
+                sun.RotationDegrees      = new Vector3(-12f, 40f, 0f);
                 sun.ShadowEnabled        = true;
                 sun.LightAngularDistance = 1.0f;
             }
-        }
-
-        // Teal-shadow / orange-highlight colour-correction LUT for the Tron look.
-        // Endpoints span ~black..~white (see MakeSplitToneLut) so it grades without
-        // lifting the image: dark tones pull teal, brights pull warm orange.
-        private static GradientTexture1D MakeTealOrangeLut()
-        {
-            var grad = new Gradient();
-            grad.SetColor(0, new Color(0.02f, 0.05f, 0.06f)); // shadows → teal
-            grad.SetColor(1, new Color(1.00f, 0.88f, 0.70f)); // highlights → warm orange
-            return new GradientTexture1D { Gradient = grad, Width = 256 };
         }
 
         // Builds a 256-px 1D LUT for Environment colour correction: a near-identity

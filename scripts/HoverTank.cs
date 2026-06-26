@@ -402,15 +402,20 @@ namespace HoverTank
             _landingBurst = CreateLandingBurst();
             AddChild(_landingBurst);
 
-            // Boost the existing under-craft glow to a brighter teal so the hull
-            // reads like the glowing craft in the reference; pulsed with speed.
+            // Hide the orange thruster orb + its light: in the reference the craft
+            // is a clean shape with only a soft underglow, no glowing balls.
+            if (GetNodeOrNull<Node3D>("Visual/Thruster") is Node3D thruster)
+                thruster.Visible = false;
+
+            // Keep a soft white-cyan underglow beneath the craft (the bright
+            // bottom-edge light in the reference), pulsed gently with speed.
             _hoverGlowLight = GetNodeOrNull<OmniLight3D>("Visual/HoverGlow/GlowLight");
             if (_hoverGlowLight != null)
             {
-                _hoverGlowLight.LightColor  = new Color(0.40f, 0.85f, 1.0f);
-                _glowBase                   = 1.5f;
+                _hoverGlowLight.LightColor  = new Color(0.70f, 0.88f, 1.0f);
+                _glowBase                   = 0.2f;
                 _hoverGlowLight.LightEnergy = _glowBase;
-                _hoverGlowLight.OmniRange   = 4.0f;
+                _hoverGlowLight.OmniRange   = 2.0f;
             }
         }
 

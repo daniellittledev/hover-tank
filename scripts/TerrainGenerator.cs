@@ -434,7 +434,7 @@ namespace HoverTank
                 FractalLacunarity = 2.0f,
             };
 
-            _infiniteMaterial = CreateTronTerrainMaterial();
+            _infiniteMaterial = CreateDuneTerrainMaterial();
 
             // Pre-build a block of chunks around the origin so the player tank
             // (spawned after the terrain's _Ready) has solid ground under it on
@@ -688,36 +688,29 @@ void fragment() {
             return new ShaderMaterial { Shader = shader };
         }
 
-        // Tron-style terrain ShaderMaterial for the TestDrive sandbox: a near-black
-        // teal surface lit only by emissives — a neon cyan world-space grid (Tron
-        // panel lines that stay put as you drive), teal crest rims via a height
-        // ramp + fresnel, and orange "energy" pooling in the deep troughs. The
-        // dark base + HDR-thresholded bloom on the emissives gives the high-contrast
-        // teal/orange look. One material shared across all chunks.
+        // Dune terrain ShaderMaterial for the TestDrive sandbox: a soft dark
+        // blue-grey surface with a subtle world-space tile grid (a panelled-floor
+        // feel, not glowing neon) and a faint cool rim on ridge silhouettes. No
+        // emissive colour of its own — the teal-blue distance comes from the
+        // scene's aerial fog and the warmth from the sunset sky. One material
+        // shared across all chunks.
         //
         // world_pos comes from MODEL_MATRIX*VERTEX (chunk roots at y=0, heights in
         // world metres). NORMAL/VIEW are view-space, which is what fresnel needs.
-        private ShaderMaterial CreateTronTerrainMaterial()
+        private ShaderMaterial CreateDuneTerrainMaterial()
         {
             var shader = new Shader
             {
                 Code = @"
 shader_type spatial;
-render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode cull_back;
 
-uniform vec3  base_color   : source_color = vec3(0.015, 0.050, 0.060); // near-black teal
-uniform vec3  grid_color   : source_color = vec3(0.05, 0.85, 1.00);    // neon cyan grid
-uniform vec3  crest_color  : source_color = vec3(0.10, 0.80, 1.00);    // teal crest
-uniform vec3  valley_color : source_color = vec3(1.00, 0.42, 0.05);    // orange energy
-uniform float crest_low    = 24.0;
-uniform float crest_high   = 38.0;
-uniform float valley_low   = -24.0;  // deepest troughs glow most
-uniform float valley_high  = -6.0;
-uniform float grid_period  = 8.0;    // world metres between grid lines
-uniform float grid_width   = 0.04;
-uniform float grid_energy   = 1.6;
-uniform float crest_energy  = 1.8;
-uniform float valley_energy = 1.3;
+uniform vec3  base_color : source_color = vec3(0.12, 0.15, 0.21); // dark blue-grey
+uniform vec3  grid_color : source_color = vec3(0.20, 0.24, 0.31); // subtle lighter seams
+uniform vec3  rim_color  : source_color = vec3(0.45, 0.62, 0.72); // faint cool crest rim
+uniform float grid_period = 6.0;   // world metres between grid lines
+uniform float grid_width  = 0.03;
+uniform float rim_energy   = 0.25;
 
 varying vec3 world_pos;
 
@@ -726,32 +719,20 @@ void vertex() {
 }
 
 void fragment() {
-    ALBEDO    = base_color;
-    ROUGHNESS = 0.65;
-    METALLIC  = 0.0;
-
-    // World-space neon grid (Tron panel seams) — stays put as the craft moves.
+    // Subtle world-space panel grid (tiled-floor feel, stays put as you move).
     vec2  gw   = abs(fract(world_pos.xz / grid_period) - 0.5);
     float grid = smoothstep(0.5 - grid_width, 0.5, max(gw.x, gw.y));
+    ALBEDO     = mix(base_color, grid_color, grid * 0.7);
+    ROUGHNESS  = 0.82;
+    METALLIC   = 0.0;
 
-    // Teal crest glow: height ramp + fresnel rim on ridge edges.
-    float h    = smoothstep(crest_low, crest_high, world_pos.y);
-    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 3.0);
-
-    // Orange energy pooling in the deep troughs.
-    float v    = 1.0 - smoothstep(valley_low, valley_high, world_pos.y);
-
-    EMISSION = grid_color   * grid * grid_energy
-             + crest_color  * (h * crest_energy + h * fres * crest_energy * 0.8)
-             + valley_color * v * valley_energy;
+    // Faint cool rim so ridge silhouettes catch a little light.
+    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
+    EMISSION   = rim_color * fres * rim_energy;
 }
 ",
             };
-
-            var mat = new ShaderMaterial { Shader = shader };
-            mat.SetShaderParameter("crest_low",  CrestGlowLow);
-            mat.SetShaderParameter("crest_high", CrestGlowHigh);
-            return mat;
+            return new ShaderMaterial { Shader = shader };
         }
     }
 }

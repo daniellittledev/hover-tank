@@ -33,17 +33,20 @@ namespace HoverTank
 				Code = @"
 shader_type spatial;
 
-uniform vec3  albedo    : source_color = vec3(0.02, 0.025, 0.035);
-uniform vec3  rim_color : source_color = vec3(0.10, 0.80, 1.00);
-uniform float rim_energy = 1.3;
+uniform vec3  albedo    : source_color = vec3(0.10, 0.30, 0.78);
+uniform vec3  rim_color : source_color = vec3(0.75, 0.92, 1.00);
+uniform float rim_energy = 0.25;
 
 void fragment() {
     ALBEDO    = albedo;
-    METALLIC  = 0.6;
-    ROUGHNESS = 0.35;
-    // High exponent → a thin crisp edge line, not a broad fill that blooms white.
-    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 6.0);
-    EMISSION  = rim_color * fres * rim_energy;
+    // Matte + non-metallic so the bright sky doesn't blow the body out to white;
+    // strong self-emission keeps it a saturated blue regardless of lighting.
+    METALLIC  = 0.0;
+    ROUGHNESS = 0.55;
+    // Very high exponent + low energy → a thin edge line only, so it doesn't
+    // flood the small faceted hull and wash the blue body to white.
+    float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 8.0);
+    EMISSION  = albedo * 0.55 + rim_color * fres * rim_energy;
 }
 ",
 			};
