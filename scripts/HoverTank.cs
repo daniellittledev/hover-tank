@@ -379,9 +379,10 @@ namespace HoverTank
         // particle node; no change to the physics model itself.
         private void ApplyTestDriveFeel()
         {
-            // Quicker, faster, floatier than the combat default.
-            ThrustForce      = 440f;
-            MaxSpeed         = 28f;
+            // Quicker, floatier than the combat default — but scaled to the
+            // track arena, which is much smaller than the old infinite terrain.
+            ThrustForce      = 110f;
+            MaxSpeed         = 7f;
             JumpImpulse      = 4.5f;
             JumpSustainForce = 26f;
 
@@ -619,9 +620,10 @@ namespace HoverTank
                 //    hard the craft is sliding sideways (small by nature, so it
                 //    reads as natural weight shift rather than a big roll).
                 float hSpeed  = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
-                float speedFr = MaxSpeed > 8f
-                    ? Mathf.Clamp((hSpeed - 8f) / (MaxSpeed - 8f), 0f, 1f)
-                    : 0f;
+                // Knee at ~30% of top speed so the effect ramps the same way at
+                // any MaxSpeed scale (was a hardcoded 8 m/s).
+                float knee    = MaxSpeed * 0.3f;
+                float speedFr = Mathf.Clamp((hSpeed - knee) / Mathf.Max(0.01f, MaxSpeed - knee), 0f, 1f);
                 float yawRate = AngularVelocity.Dot(GlobalBasis.Y); // +Y = left turn
                 float lateral = LinearVelocity.Dot(GlobalBasis.X);  // +X = right
                 float target  = Mathf.Clamp(
@@ -645,9 +647,8 @@ namespace HoverTank
         private void UpdateFeelVisuals(float dt)
         {
             float hSpeed   = new Vector2(LinearVelocity.X, LinearVelocity.Z).Length();
-            float targetFr = MaxSpeed > 8f
-                ? Mathf.Clamp((hSpeed - 8f) / (MaxSpeed - 8f), 0f, 1f)
-                : 0f;
+            float knee     = MaxSpeed * 0.3f;
+            float targetFr = Mathf.Clamp((hSpeed - knee) / Mathf.Max(0.01f, MaxSpeed - knee), 0f, 1f);
             _speedIntensity = Mathf.Lerp(_speedIntensity, targetFr, Mathf.Min(1f, 5f * dt));
 
             if (AimCamera != null)
