@@ -1,10 +1,10 @@
 # Hover Tank
 
-Battlezone-style hover tank game built with Godot 4.3 (C# / ForwardPlus).
+Battlezone-style hover tank game built with Godot 4.6 (C# / ForwardPlus).
 
 ## Requirements
 
-- [Godot 4.3+](https://godotengine.org/download) with .NET support (the `mono`/dotnet build)
+- [Godot 4.6+](https://godotengine.org/download) with .NET support (the `mono`/dotnet build)
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
 
 ## Setup
@@ -13,7 +13,7 @@ Battlezone-style hover tank game built with Godot 4.3 (C# / ForwardPlus).
 git clone https://github.com/daniellittledev/hover-tank
 ```
 
-Open the cloned folder in Godot 4.3.
+Open the cloned folder in Godot 4.6.
 
 ## Run
 
