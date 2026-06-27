@@ -240,7 +240,7 @@ namespace HoverTank
         // The reference video's movement: fast, floaty skimming with the craft
         // banking into turns and throwing sparks as it carves the surface. This
         // is enabled ONLY for the player tank in the TestDrive sandbox (detected
-        // from GameState in _Ready, mirroring TerrainGenerator's _infiniteMode) —
+        // from GameState in _Ready, mirroring TerrainGenerator's _trackMode) —
         // combat/multiplayer tanks keep the tuned default handling untouched.
         private bool _feelMode;
         // Peak cosmetic roll (radians) when carving a hard turn / strafe.
@@ -363,7 +363,7 @@ namespace HoverTank
             }
 
             // TestDrive sandbox: the human-driven tank gets the reference-video
-            // movement feel. Mirrors TerrainGenerator's _infiniteMode gate.
+            // movement feel. Mirrors TerrainGenerator's _trackMode gate.
             var gs = GameState.Instance;
             _feelMode = gs != null
                 && gs.Mode == GameMode.SinglePlayer

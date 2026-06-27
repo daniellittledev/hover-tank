@@ -6,16 +6,18 @@ using GFileAccess = Godot.FileAccess;
 namespace HoverTank
 {
     /// <summary>
-    /// Generates moon-like cratered terrain entirely in C# at runtime.
+    /// Generates the world terrain entirely in C# at runtime.
     ///
     /// Two modes:
     ///   • Standard (default): a single finite cratered heightmap, edge-walled,
     ///     used by StandardWaves / multiplayer / split-screen. Heights are
     ///     generated from fractal noise; set <see cref="CustomMapPath"/> to
     ///     override with a packed float32 heightmap file.
-    ///   • TestDrive: infinite chunk-streamed terrain — gentle rolling dunes
-    ///     under a matte panel-grid material. Selected automatically when
-    ///     GameState.SinglePlayerMode == TestDrive.
+    ///   • TestDrive: a finite "track arena" — mountains ringing the edge and a
+    ///     large figure-8 channel as the central feature, rendered two-tier (a
+    ///     fine central inset + a coarse outer ring) under a matte panel-grid
+    ///     material. The height field lives in <see cref="TrackArena"/>. Selected
+    ///     automatically when GameState.SinglePlayerMode == TestDrive.
     /// </summary>
     public partial class TerrainGenerator : Node3D
     {
@@ -46,29 +48,10 @@ namespace HoverTank
         // procedural noise. Intended for future hand-authored campaign maps.
         [Export] public string CustomMapPath = "";
 
-        // ── TestDrive infinite-chunk streaming ──────────────────────────────
-        // Cells per chunk side. Chunk world size = ChunkCells * CellSize.
-        [Export] public int ChunkCells = 32;
-        // Number of chunks of radius to keep loaded around the player.
-        // Total loaded chunks = (2*ChunkLoadRadius+1)^2. Radius 4 keeps a wide
-        // vista of swells visible before the aerial-perspective fog closes in.
-        [Export] public int ChunkLoadRadius = 4;
-        // Amplitude of TestDrive rolling swells (metres). Large + low-frequency
-        // (see SetupInfiniteTerrain) gives the big ocean-swell dunes of the
-        // reference, which the hover springs ride and the jets launch off.
-        [Export] public float InfiniteHillScale = 40f;
-        // World height (metres) at which terrain crests begin to glow teal, and
-        // the height of full glow. Drives the emission ramp in the dream shader.
-        [Export] public float CrestGlowLow  = 26f;
-        [Export] public float CrestGlowHigh = 36f;
-
-        // Runtime state for infinite mode.
-        private bool _infiniteMode;
-        private FastNoiseLite _hillNoise = null!;
-        private Material _infiniteMaterial = null!;
-        private readonly Dictionary<(int, int), Node3D> _chunks = new();
-        private (int, int) _lastCenterChunk = (int.MinValue, int.MinValue);
-        private Node3D? _player;
+        // Runtime state for the TestDrive track arena (see TrackArena.cs).
+        private bool _trackMode;
+        private TrackArena? _trackArena;
+        private Material _trackMaterial = null!;
 
         // Finite-mode height grid, kept so HeightAt() can answer spawn queries
         // without a physics raycast (collision isn't flushed on spawn frame).
@@ -82,14 +65,14 @@ namespace HoverTank
             // terrain height before dropping a tank in.
             AddToGroup("terrain");
 
-            // TestDrive = infinite procedural sandbox with matte panel-grid surface.
+            // TestDrive = finite figure-8 track arena with matte panel-grid surface.
             var gs = GameState.Instance;
-            _infiniteMode = gs != null
+            _trackMode = gs != null
                 && gs.Mode == GameMode.SinglePlayer
                 && gs.SinglePlayerMode == SinglePlayerMode.TestDrive;
 
-            if (_infiniteMode)
-                SetupInfiniteTerrain();
+            if (_trackMode)
+                BuildTrackArena();
             else
                 GenerateTerrain();
         }
@@ -100,8 +83,8 @@ namespace HoverTank
         // finite grid hasn't been built or the point lies outside it.
         public float HeightAt(float x, float z)
         {
-            if (_infiniteMode)
-                return SampleHeight(x, z);
+            if (_trackMode)
+                return _trackArena!.SampleHeight(x, z);
 
             if (_finiteHeights == null) return 0f;
 
@@ -111,12 +94,6 @@ namespace HoverTank
             if (gx < 0 || gz < 0 || gx >= _finiteVerts || gz >= _finiteVerts)
                 return 0f;
             return _finiteHeights[gx, gz];
-        }
-
-        public override void _Process(double delta)
-        {
-            if (!_infiniteMode) return;
-            UpdateStreaming();
         }
 
         private void GenerateTerrain()
@@ -182,11 +159,15 @@ namespace HoverTank
         // Four invisible collision walls around the terrain perimeter so the
         // tank cannot drive off the edge of the map.
         private void CreateEdgeBarriers(float worldSize)
+            => CreateEdgeBarriers(worldSize, 20f, 20f * 0.5f - CraterDepth);
+
+        // Explicit-height overload: the track arena needs tall walls (mountains
+        // reach ~70 m and the jets can launch the tank high near the rim), so it
+        // passes a taller wall and a higher centre than the crater-depth default.
+        private void CreateEdgeBarriers(float worldSize, float wallHeight, float wallY)
         {
-            float wallHeight = 20f;
             float wallThickness = 2f;
             float half = worldSize * 0.5f;
-            float wallY = wallHeight * 0.5f - CraterDepth;
 
             var walls = new (Vector3 pos, Vector3 size)[]
             {
@@ -417,219 +398,231 @@ namespace HoverTank
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // TestDrive infinite terrain
+        // TestDrive track arena (figure-8 channel — see TrackArena.cs)
         // ═══════════════════════════════════════════════════════════════════
 
-        // Noise sources are world-space so adjacent chunks share boundary values
-        // exactly — no seam stitching required. Normals are also sampled from
-        // world-space SampleHeight so lighting is seamless across chunks.
-        private void SetupInfiniteTerrain()
+        // Builds the finite TestDrive arena. Detail comes entirely from the
+        // analytic TrackArena height field, so render and collision just sample
+        // it: the render is a grid of chunks, each carrying 2–3 prebuilt LOD
+        // meshes swapped by camera distance (Godot VisibilityRange); collision
+        // is one uniform heightfield over the reachable disc. The tank is kept
+        // in by an invisible circular wall; mountains beyond it are backdrop.
+        private void BuildTrackArena()
         {
-            _hillNoise = new FastNoiseLite
-            {
-                Seed              = NoiseSeed,
-                Frequency         = 0.006f,   // long wavelength → big ocean-swell dunes
-                FractalOctaves    = 4,        // a little medium-scale variation on the swells
-                FractalGain       = 0.42f,    // keep high-frequency octaves gentle (no rubble)
-                FractalLacunarity = 2.0f,
-            };
+            _trackArena    = new TrackArena(NoiseSeed);
+            _trackMaterial = CreateDuneTerrainMaterial();
 
-            _infiniteMaterial = CreateDuneTerrainMaterial();
-
-            // Pre-build a block of chunks around the origin so the player tank
-            // (spawned after the terrain's _Ready) has solid ground under it on
-            // frame 0. Streaming takes over from the next _Process tick.
-            for (int dz = -ChunkLoadRadius; dz <= ChunkLoadRadius; dz++)
-                for (int dx = -ChunkLoadRadius; dx <= ChunkLoadRadius; dx++)
-                    _chunks[(dx, dz)] = BuildChunk(dx, dz);
-            _lastCenterChunk = (0, 0);
+            BuildChunkedTerrain();
+            BuildArenaCollision();
+            CreateCircularBoundary(TrackArena.BoundaryRadius, height: 120f, segments: 64);
         }
 
-        // Symmetric fractal-noise rolling dunes at world (x, z).
-        private float SampleHeight(float wx, float wz)
+        // ── Render: grid of LOD chunks ──────────────────────────────────────
+        private const float ChunkSize = 30f;   // world metres per chunk side
+        private const float ChunkSkirt = 6f;   // downward skirt to hide LOD seams
+        // Distance bands (camera→chunk-centre) and cell sizes for the 3 LODs.
+        private static readonly (float cell, float begin, float end)[] LodBands =
         {
-            return _hillNoise.GetNoise2D(wx, wz) * InfiniteHillScale;
-        }
+            (1.0f,   0f,  62f),   // near: fine, ~no facets
+            (2.0f,  56f, 124f),   // mid
+            (4.0f, 118f,   0f),   // far: coarse (end 0 = no far cutoff)
+        };
 
-        // Player movement → chunk rebalance. Only runs when the player crosses
-        // a chunk boundary, so per-frame cost is a cheap floor/compare.
-        private void UpdateStreaming()
+        private void BuildChunkedTerrain()
         {
-            if (_player == null || !GodotObject.IsInstanceValid(_player))
-                _player = FindPlayerTank();
-            if (_player == null) return;
+            int n = Mathf.CeilToInt(2f * TrackArena.RenderHalf / ChunkSize); // 14
+            float half = ChunkSize * 0.5f;
 
-            float chunkWorld = ChunkCells * CellSize;
-            Vector3 pos = _player.GlobalPosition;
-            int cx = Mathf.FloorToInt(pos.X / chunkWorld);
-            int cz = Mathf.FloorToInt(pos.Z / chunkWorld);
-
-            if ((cx, cz) == _lastCenterChunk && _chunks.Count > 0) return;
-            _lastCenterChunk = (cx, cz);
-
-            // Free out-of-range chunks.
-            var toFree = new List<(int, int)>();
-            foreach (var key in _chunks.Keys)
+            for (int cz = 0; cz < n; cz++)
             {
-                if (Math.Abs(key.Item1 - cx) > ChunkLoadRadius ||
-                    Math.Abs(key.Item2 - cz) > ChunkLoadRadius)
-                    toFree.Add(key);
-            }
-            foreach (var key in toFree)
-            {
-                _chunks[key].QueueFree();
-                _chunks.Remove(key);
-            }
-
-            // Build any missing in-range chunks.
-            for (int dz = -ChunkLoadRadius; dz <= ChunkLoadRadius; dz++)
-                for (int dx = -ChunkLoadRadius; dx <= ChunkLoadRadius; dx++)
+                for (int cx = 0; cx < n; cx++)
                 {
-                    var key = (cx + dx, cz + dz);
-                    if (!_chunks.ContainsKey(key))
-                        _chunks[key] = BuildChunk(key.Item1, key.Item2);
-                }
-        }
+                    float centerX = -TrackArena.RenderHalf + (cx + 0.5f) * ChunkSize;
+                    float centerZ = -TrackArena.RenderHalf + (cz + 0.5f) * ChunkSize;
 
-        private Node3D? FindPlayerTank()
-        {
-            foreach (Node node in GetTree().GetNodesInGroup("hover_tanks"))
-            {
-                if (node is HoverTank tank && !tank.IsEnemy && !tank.IsFriendlyAI)
-                    return tank;
-            }
-            return null;
-        }
-
-        // One chunk = ChunkCells × ChunkCells quads of terrain + matching
-        // HeightMapShape3D collision, parented under a Node3D at the chunk's
-        // world-space origin.
-        private Node3D BuildChunk(int cx, int cz)
-        {
-            int verts = ChunkCells + 1;
-            float chunkWorld = ChunkCells * CellSize;
-            float baseX = cx * chunkWorld;
-            float baseZ = cz * chunkWorld;
-
-            // Sample heights for this chunk's vertex grid.
-            var heights = new float[verts, verts];
-            for (int z = 0; z < verts; z++)
-                for (int x = 0; x < verts; x++)
-                    heights[x, z] = SampleHeight(baseX + x * CellSize, baseZ + z * CellSize);
-
-            // Build mesh with seamless normals sampled across chunk boundaries.
-            var mesh = BuildChunkMesh(heights, verts, baseX, baseZ);
-
-            var meshInst = new MeshInstance3D { Mesh = mesh };
-            meshInst.SetSurfaceOverrideMaterial(0, _infiniteMaterial);
-
-            // HeightMapShape3D collision. Shape is centred on its origin, so we
-            // offset the CollisionShape3D to the chunk centre.
-            var mapData = new float[verts * verts];
-            for (int z = 0; z < verts; z++)
-                for (int x = 0; x < verts; x++)
-                    mapData[z * verts + x] = heights[x, z];
-
-            var hmShape = new HeightMapShape3D
-            {
-                MapWidth  = verts,
-                MapDepth  = verts,
-                MapData   = mapData,
-            };
-            var colShape = new CollisionShape3D
-            {
-                Shape    = hmShape,
-                Scale    = new Vector3(CellSize, 1f, CellSize),
-                Position = new Vector3(chunkWorld * 0.5f, 0f, chunkWorld * 0.5f),
-            };
-            var body = new StaticBody3D();
-            body.AddChild(colShape);
-
-            var root = new Node3D
-            {
-                Name     = $"Chunk_{cx}_{cz}",
-                Position = new Vector3(baseX, 0f, baseZ),
-            };
-            root.AddChild(meshInst);
-            root.AddChild(body);
-            AddChild(root);
-            return root;
-        }
-
-        // Chunk mesh in local space ([0..chunkWorld] on X/Z). UVs are in cell
-        // units (1 UV per cell) so the grid texture tiles exactly once per
-        // terrain cell regardless of chunk size. Normals use SampleHeight on
-        // world-space neighbours so lighting is seamless across chunks.
-        private ArrayMesh BuildChunkMesh(float[,] heights, int verts, float baseX, float baseZ)
-        {
-            int gridSize   = verts - 1;
-            int vertCount  = verts * verts;
-            int indexCount = gridSize * gridSize * 6;
-
-            var positions = new Vector3[vertCount];
-            var normals   = new Vector3[vertCount];
-            var uvs       = new Vector2[vertCount];
-            var indices   = new int[indexCount];
-
-            for (int z = 0; z < verts; z++)
-            {
-                for (int x = 0; x < verts; x++)
-                {
-                    int i = z * verts + x;
-                    float lx = x * CellSize;
-                    float lz = z * CellSize;
-                    positions[i] = new Vector3(lx, heights[x, z], lz);
-                    // 2 tiles per cell — denser panel grid matching the reference.
-                    // Use world coords so grid aligns seamlessly across chunk boundaries.
-                    uvs[i] = new Vector2((baseX + lx) / (CellSize * 0.5f), (baseZ + lz) / (CellSize * 0.5f));
-
-                    // Wide central-difference normal (±2 cells). Larger stencil
-                    // averages out high-frequency noise, giving smoother normals
-                    // that reduce the triangle-seam artefact under specular light.
-                    float wx = baseX + lx;
-                    float wz = baseZ + lz;
-                    float hL = SampleHeight(wx - 2f * CellSize, wz);
-                    float hR = SampleHeight(wx + 2f * CellSize, wz);
-                    float hD = SampleHeight(wx, wz - 2f * CellSize);
-                    float hU = SampleHeight(wx, wz + 2f * CellSize);
-                    normals[i] = new Vector3(hL - hR, 4f * CellSize, hD - hU).Normalized();
-                }
-            }
-
-            int idx = 0;
-            for (int z = 0; z < gridSize; z++)
-            {
-                for (int x = 0; x < gridSize; x++)
-                {
-                    int tl = z * verts + x;
-                    int tr = tl + 1;
-                    int bl = (z + 1) * verts + x;
-                    int br = bl + 1;
-
-                    if (MathF.Abs(heights[x, z] - heights[x + 1, z + 1]) <=
-                        MathF.Abs(heights[x + 1, z] - heights[x, z + 1]))
+                    var chunk = new Node3D
                     {
-                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = br;
-                        indices[idx++] = tl; indices[idx++] = br; indices[idx++] = bl;
+                        Name     = $"Chunk_{cx}_{cz}",
+                        Position = new Vector3(centerX, 0f, centerZ),
+                    };
+                    AddChild(chunk);
+
+                    // Chunks the tank can reach get the full LOD stack; far
+                    // backdrop chunks (mountains) only ever need the coarse mesh.
+                    float dc = Mathf.Sqrt(centerX * centerX + centerZ * centerZ);
+                    if (dc < TrackArena.BoundaryRadius + 15f)
+                    {
+                        foreach (var (cell, begin, end) in LodBands)
+                        {
+                            var inst = new MeshInstance3D
+                            {
+                                Mesh                     = BuildChunkMesh(centerX, centerZ, half, cell),
+                                VisibilityRangeBegin     = begin,
+                                VisibilityRangeEnd       = end,
+                                VisibilityRangeBeginMargin = begin > 0f ? 8f : 0f,
+                                VisibilityRangeEndMargin   = end   > 0f ? 8f : 0f,
+                                VisibilityRangeFadeMode  = GeometryInstance3D.VisibilityRangeFadeModeEnum.Self,
+                            };
+                            inst.SetSurfaceOverrideMaterial(0, _trackMaterial);
+                            chunk.AddChild(inst);
+                        }
                     }
                     else
                     {
-                        indices[idx++] = tl; indices[idx++] = tr; indices[idx++] = bl;
-                        indices[idx++] = tr; indices[idx++] = br; indices[idx++] = bl;
+                        var inst = new MeshInstance3D { Mesh = BuildChunkMesh(centerX, centerZ, half, 4f) };
+                        inst.SetSurfaceOverrideMaterial(0, _trackMaterial);
+                        chunk.AddChild(inst);
+                    }
+                }
+            }
+        }
+
+        // One chunk LOD mesh in local space (centred on its chunk, [-half..half]
+        // on X/Z). Heights and smooth normals are sampled directly from the
+        // analytic field — normals use a fixed-epsilon central difference so
+        // shading stays smooth (no visible facets) regardless of cell size and
+        // is consistent across LODs. A downward skirt around the perimeter hides
+        // cracks where a neighbour chunk is at a different LOD.
+        private ArrayMesh BuildChunkMesh(float centerX, float centerZ, float half, float cell)
+        {
+            int verts = Mathf.RoundToInt(2f * half / cell) + 1;
+
+            var positions = new List<Vector3>(verts * verts);
+            var normals   = new List<Vector3>(verts * verts);
+            var uvs       = new List<Vector2>(verts * verts);
+
+            for (int z = 0; z < verts; z++)
+            {
+                for (int x = 0; x < verts; x++)
+                {
+                    float lx = -half + x * cell;
+                    float lz = -half + z * cell;
+                    float wx = centerX + lx;
+                    float wz = centerZ + lz;
+                    positions.Add(new Vector3(lx, _trackArena!.SampleHeight(wx, wz), lz));
+                    uvs.Add(new Vector2(wx, wz) * 0.1f); // unused by the panel-grid shader
+                    normals.Add(AnalyticNormal(wx, wz));
+                }
+            }
+
+            int Vid(int x, int z) => z * verts + x;
+            var indices = new List<int>();
+            for (int z = 0; z < verts - 1; z++)
+            {
+                for (int x = 0; x < verts - 1; x++)
+                {
+                    int tl = Vid(x, z), tr = Vid(x + 1, z), bl = Vid(x, z + 1), br = Vid(x + 1, z + 1);
+                    if (MathF.Abs(positions[tl].Y - positions[br].Y) <=
+                        MathF.Abs(positions[tr].Y - positions[bl].Y))
+                    {
+                        indices.Add(tl); indices.Add(tr); indices.Add(br);
+                        indices.Add(tl); indices.Add(br); indices.Add(bl);
+                    }
+                    else
+                    {
+                        indices.Add(tl); indices.Add(tr); indices.Add(bl);
+                        indices.Add(tr); indices.Add(br); indices.Add(bl);
                     }
                 }
             }
 
+            // Skirts along the four edges. Emitted double-sided (both windings)
+            // so they fill the seam regardless of view direction.
+            void AddSkirt(System.Func<int, int> edgeVid, int count)
+            {
+                int firstBottom = positions.Count;
+                for (int k = 0; k < count; k++)
+                {
+                    int top = edgeVid(k);
+                    var p = positions[top];
+                    positions.Add(new Vector3(p.X, p.Y - ChunkSkirt, p.Z));
+                    normals.Add(normals[top]);
+                    uvs.Add(uvs[top]);
+                }
+                for (int k = 0; k < count - 1; k++)
+                {
+                    int t0 = edgeVid(k), t1 = edgeVid(k + 1);
+                    int b0 = firstBottom + k, b1 = firstBottom + k + 1;
+                    indices.Add(t0); indices.Add(t1); indices.Add(b1);
+                    indices.Add(t0); indices.Add(b1); indices.Add(b0);
+                    indices.Add(t0); indices.Add(b1); indices.Add(t1); // reverse winding
+                    indices.Add(t0); indices.Add(b0); indices.Add(b1);
+                }
+            }
+            AddSkirt(k => Vid(k, 0), verts);            // bottom edge
+            AddSkirt(k => Vid(k, verts - 1), verts);    // top edge
+            AddSkirt(k => Vid(0, k), verts);            // left edge
+            AddSkirt(k => Vid(verts - 1, k), verts);    // right edge
+
             var arrays = new Godot.Collections.Array();
             arrays.Resize((int)Mesh.ArrayType.Max);
-            arrays[(int)Mesh.ArrayType.Vertex] = positions;
-            arrays[(int)Mesh.ArrayType.Normal] = normals;
-            arrays[(int)Mesh.ArrayType.TexUV]  = uvs;
-            arrays[(int)Mesh.ArrayType.Index]  = indices;
+            arrays[(int)Mesh.ArrayType.Vertex] = positions.ToArray();
+            arrays[(int)Mesh.ArrayType.Normal] = normals.ToArray();
+            arrays[(int)Mesh.ArrayType.TexUV]  = uvs.ToArray();
+            arrays[(int)Mesh.ArrayType.Index]  = indices.ToArray();
 
             var mesh = new ArrayMesh();
             mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
             return mesh;
+        }
+
+        // Smooth surface normal from the height field's gradient (fixed epsilon,
+        // independent of mesh cell size → no faceting, consistent across LODs).
+        private Vector3 AnalyticNormal(float wx, float wz)
+        {
+            const float e = 0.9f;
+            float hL = _trackArena!.SampleHeight(wx - e, wz);
+            float hR = _trackArena!.SampleHeight(wx + e, wz);
+            float hD = _trackArena!.SampleHeight(wx, wz - e);
+            float hU = _trackArena!.SampleHeight(wx, wz + e);
+            return new Vector3(hL - hR, 2f * e, hD - hU).Normalized();
+        }
+
+        // ── Collision: one uniform heightfield over the reachable disc ──────
+        // Collision needs no LOD — the tank only touches terrain near it — so a
+        // single medium-fine HeightMapShape3D over ±CollisionHalf captures the
+        // channel, craters and ramps as drivable geometry. Cheap: physics only
+        // narrow-phases cells under the body.
+        private void BuildArenaCollision()
+        {
+            const float cell = 1.25f;
+            int verts = Mathf.RoundToInt(2f * TrackArena.CollisionHalf / cell) + 1;
+            var mapData = new float[verts * verts];
+            for (int z = 0; z < verts; z++)
+                for (int x = 0; x < verts; x++)
+                    mapData[z * verts + x] = _trackArena!.SampleHeight(
+                        -TrackArena.CollisionHalf + x * cell,
+                        -TrackArena.CollisionHalf + z * cell);
+
+            var colShape = new CollisionShape3D
+            {
+                Shape = new HeightMapShape3D { MapWidth = verts, MapDepth = verts, MapData = mapData },
+                Scale = new Vector3(cell, 1f, cell), // centred on world origin
+            };
+            var body = new StaticBody3D();
+            body.AddChild(colShape);
+            AddChild(body);
+        }
+
+        // ── Circular boundary ───────────────────────────────────────────────
+        // A ring of tangent box walls approximating a cylinder, so the tank
+        // can't drive (or jet) out of the arena. Replaces the square edge walls.
+        private void CreateCircularBoundary(float radius, float height, int segments)
+        {
+            float segLen = (float)(Math.Tau * radius / segments) * 1.2f; // slight overlap
+            var body = new StaticBody3D { Name = "Boundary" };
+            for (int i = 0; i < segments; i++)
+            {
+                float ang = (float)(i * Math.Tau / segments);
+                var col = new CollisionShape3D
+                {
+                    Shape    = new BoxShape3D { Size = new Vector3(2f, height, segLen) },
+                    Position = new Vector3(MathF.Cos(ang) * radius, height * 0.5f - 20f, MathF.Sin(ang) * radius),
+                    Rotation = new Vector3(0f, -ang, 0f),
+                };
+                body.AddChild(col);
+            }
+            AddChild(body);
         }
 
         // Standard (combat/MP) terrain material. Instead of one flat albedo, it

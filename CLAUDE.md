@@ -11,7 +11,8 @@ AI, a wave survival loop, procedural audio, split-screen, and menus.
 | Path | Purpose |
 |------|---------|
 | `scripts/HoverTank.cs` | Hover spring-damper, WASD movement, jump jets, health, visual interp, TestDrive feel |
-| `scripts/TerrainGenerator.cs` | Procedural noise heightmap, crater carver, mesh + collision. Optional float32 custom map via `CustomMapPath` |
+| `scripts/TerrainGenerator.cs` | Standard mode: procedural noise heightmap, crater carver, mesh + collision (optional float32 custom map via `CustomMapPath`). TestDrive mode: chunked-LOD render of the `TrackArena` field |
+| `scripts/TrackArena.cs` | TestDrive height field: rounded ∞ channel, craters, ramps, eroded noise, background mountains. Pure `SampleHeight(x,z)` — sampled by render (per-LOD) and collision |
 | `scripts/FollowCamera.cs` | Lag-smoothed follow camera |
 | `scripts/GameSetup.cs` | Main.tscn root: bridges menu mode → game start, per-mode visuals, pause |
 | `scripts/network/*` | ENet client/server simulation, prediction/reconciliation, snapshot RPCs |
@@ -46,7 +47,7 @@ aim via the turret/aim target, not assume a freely world-aimed turret.
 ## Conventions
 
 - Namespace: `HoverTank`, target: `net8.0`, physics tick: 60 Hz
-- Terrain generation is runtime in `_Ready()` — no baked assets
+- Terrain generation is runtime in `_Ready()` by default. **Baked heightmaps are permitted** for expensive detail/erosion that's too slow to compute every load — load them via the `CustomMapPath` float32 loader. (The old "no baked assets" rule was dropped to support the TestDrive arena's detail pass.)
 - All `[Export]` physics params (`HoverHeight`, `ThrustForce`, etc.) are tunable in the Inspector
 
 ## Architecture notes
@@ -54,7 +55,8 @@ aim via the turret/aim target, not assume a freely world-aimed turret.
 Only add entries here when future changes are very likely to need them.
 
 - **Hover physics**: `HoverTank.cs:_PhysicsProcess` applies spring-damper force at each of the 9 hover raycasts (3×3 grid, cached in `_hoverRays`). Force is proportional to compression + velocity — no separate balance controller needed.
-- **Terrain pipeline**: `TerrainGenerator.cs` carves craters into the raw height array first, then builds `ArrayMesh` and `HeightMapShape3D` in one pass from the same data. No separate collision bake.
+- **Terrain pipeline (standard)**: `TerrainGenerator.cs` carves craters into the raw height array first, then builds `ArrayMesh` and `HeightMapShape3D` in one pass from the same data. No separate collision bake.
+- **Terrain pipeline (TestDrive)**: `TrackArena.SampleHeight(x,z)` is the single source of truth (analytic — rounded ∞ channel + craters + ramps + erosion + backdrop mountains). `TerrainGenerator.BuildTrackArena` samples it two ways: **render** = a grid of chunk `Node3D`s, each with 2–3 prebuilt LOD `MeshInstance3D` meshes swapped by camera distance via `VisibilityRangeBegin/End` (+ `FadeMode.Self`), with downward perimeter skirts to hide LOD-seam cracks and fixed-epsilon analytic normals so shading stays smooth across LODs; **collision** = one uniform `HeightMapShape3D` over the reachable disc (no LOD — the tank only touches nearby terrain). The tank is contained by a ring-of-boxes circular boundary. Detail = sample the field finer; never decimate or stitch.
 - **Input actions**: Defined in `project.godot` under `[input]`, not in code. Add new actions there.
 - **Scene ownership**: `Main.tscn` owns terrain and a `Tanks` container; `NetworkManager` instances `HoverTank.tscn` into it. Camera is a child of the tank, mounted to `CameraMount`, driven by `FollowCamera.cs`.
 - **Autoloads**: Three singletons in `project.godot` — `GameState`, `NetworkManager`, `AudioManager` (registered in that order; `NetworkManager._Ready` reads `GameState`). `GameState`/`AudioManager` expose a static `Instance`; `NetworkManager` is reached via `/root/NetworkManager`. Prefer signals for other cross-scene communication.
