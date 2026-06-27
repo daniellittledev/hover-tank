@@ -428,19 +428,13 @@ namespace HoverTank
         private static Button MakeMenuButton(string text)
         {
             var btn = new Button { Text = text };
-            btn.AddThemeColorOverride("font_color",       new Color(0.85f, 0.85f, 0.85f));
-            btn.AddThemeColorOverride("font_hover_color", new Color(0.20f, 1.00f, 0.40f));
+            btn.AddThemeColorOverride("font_color",       UiTheme.Text);
+            btn.AddThemeColorOverride("font_hover_color", UiTheme.Green);
             btn.AddThemeFontSizeOverride("font_size", 18);
-            btn.AddThemeStyleboxOverride("normal",  new StyleBoxFlat { BgColor = Colors.Transparent });
-            btn.AddThemeStyleboxOverride("focus",   new StyleBoxFlat { BgColor = Colors.Transparent });
-            var hover = new StyleBoxFlat
-            {
-                BgColor              = new Color(0.20f, 1.00f, 0.40f, 0.12f),
-                CornerRadiusTopLeft  = 4, CornerRadiusTopRight    = 4,
-                CornerRadiusBottomLeft = 4, CornerRadiusBottomRight = 4,
-            };
-            btn.AddThemeStyleboxOverride("hover",   hover);
-            btn.AddThemeStyleboxOverride("pressed", hover);
+            btn.AddThemeStyleboxOverride("normal",  UiTheme.TransparentBox());
+            btn.AddThemeStyleboxOverride("focus",   UiTheme.TransparentBox());
+            btn.AddThemeStyleboxOverride("hover",   UiTheme.HoverBox());
+            btn.AddThemeStyleboxOverride("pressed", UiTheme.HoverBox());
             return btn;
         }
     }

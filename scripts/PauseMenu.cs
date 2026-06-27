@@ -10,10 +10,8 @@ namespace HoverTank
     // The owner calls Show() on Escape; this node handles its own Hide() on Resume.
     public partial class PauseMenu : CanvasLayer
     {
-        private static readonly Color ColGreen    = new(0.20f, 1.00f, 0.40f);
-        private static readonly Color ColText     = new(0.85f, 0.85f, 0.85f);
-        private static readonly Color ColBg       = new(0.00f, 0.00f, 0.00f, 0.82f);
-        private static readonly Color ColBtnHover = new(0.20f, 1.00f, 0.40f, 0.12f);
+        private static readonly Color ColGreen = UiTheme.Green;
+        private static readonly Color ColText  = UiTheme.Text;
 
         public override void _Ready()
         {
@@ -106,18 +104,7 @@ namespace HoverTank
 
         // ── Style helpers ─────────────────────────────────────────────────────
 
-        private static StyleBoxFlat PanelStyle() => new()
-        {
-            BgColor                 = ColBg,
-            CornerRadiusTopLeft     = 8,
-            CornerRadiusTopRight    = 8,
-            CornerRadiusBottomLeft  = 8,
-            CornerRadiusBottomRight = 8,
-            ContentMarginLeft       = 32,
-            ContentMarginRight      = 32,
-            ContentMarginTop        = 24,
-            ContentMarginBottom     = 24,
-        };
+        private static StyleBoxFlat PanelStyle() => UiTheme.PanelStyle(0.82f, 32);
 
         private static Button MakeBtn(string text)
         {
@@ -135,24 +122,10 @@ namespace HoverTank
             return btn;
         }
 
-        private static HSeparator MakeSep()
-        {
-            var sep   = new HSeparator();
-            var style = new StyleBoxFlat { BgColor = new Color(0.25f, 0.25f, 0.25f) };
-            sep.AddThemeStyleboxOverride("separator", style);
-            return sep;
-        }
+        private static HSeparator MakeSep() => UiTheme.Separator();
 
-        private static StyleBoxFlat TransparentBox() =>
-            new() { BgColor = Colors.Transparent };
+        private static StyleBoxFlat TransparentBox() => UiTheme.TransparentBox();
 
-        private static StyleBoxFlat HoverBox() => new()
-        {
-            BgColor                 = ColBtnHover,
-            CornerRadiusTopLeft     = 4,
-            CornerRadiusTopRight    = 4,
-            CornerRadiusBottomLeft  = 4,
-            CornerRadiusBottomRight = 4,
-        };
+        private static StyleBoxFlat HoverBox() => UiTheme.HoverBox();
     }
 }

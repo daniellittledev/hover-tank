@@ -12,12 +12,10 @@ namespace HoverTank
 	//   _settingsPanel   – Settings: resolution + window mode + Apply / Back
 	public partial class MainMenu : CanvasLayer
 	{
-		// ── Colours matching HUD style ───────────────────────────────────────
-		private static readonly Color ColGreen     = new(0.20f, 1.00f, 0.40f);
-		private static readonly Color ColDim       = new(0.50f, 0.50f, 0.50f);
-		private static readonly Color ColText      = new(0.85f, 0.85f, 0.85f);
-		private static readonly Color ColBg        = new(0.00f, 0.00f, 0.00f, 0.72f);
-		private static readonly Color ColBtnHover  = new(0.20f, 1.00f, 0.40f, 0.12f);
+		// ── Colours (shared palette in UiTheme) ──────────────────────────────
+		private static readonly Color ColGreen = UiTheme.Green;
+		private static readonly Color ColDim   = UiTheme.Dim;
+		private static readonly Color ColText  = UiTheme.Text;
 
 		// ── Panels ───────────────────────────────────────────────────────────
 		private Control _mainPanel    = null!;
@@ -155,18 +153,7 @@ namespace HoverTank
 			return vbox;
 		}
 
-		private static StyleBoxFlat PanelStyle() => new()
-		{
-			BgColor                 = ColBg,
-			CornerRadiusTopLeft     = 8,
-			CornerRadiusTopRight    = 8,
-			CornerRadiusBottomLeft  = 8,
-			CornerRadiusBottomRight = 8,
-			ContentMarginLeft       = 36,
-			ContentMarginRight      = 36,
-			ContentMarginTop        = 28,
-			ContentMarginBottom     = 28,
-		};
+		private static StyleBoxFlat PanelStyle() => UiTheme.PanelStyle(0.72f, 36);
 
 		// Creates a menu button with hover highlight.
 		private static Button MakeBtn(string text)
@@ -185,16 +172,9 @@ namespace HoverTank
 			return btn;
 		}
 
-		private static StyleBoxFlat TransparentBox() => new() { BgColor = Colors.Transparent };
+		private static StyleBoxFlat TransparentBox() => UiTheme.TransparentBox();
 
-		private static StyleBoxFlat HoverBox() => new()
-		{
-			BgColor                 = ColBtnHover,
-			CornerRadiusTopLeft     = 4,
-			CornerRadiusTopRight    = 4,
-			CornerRadiusBottomLeft  = 4,
-			CornerRadiusBottomRight = 4,
-		};
+		private static StyleBoxFlat HoverBox() => UiTheme.HoverBox();
 
 		private static Label MakeSectionLabel(string text)
 		{
@@ -204,13 +184,7 @@ namespace HoverTank
 			return lbl;
 		}
 
-		private static HSeparator MakeSep()
-		{
-			var sep = new HSeparator();
-			var style = new StyleBoxFlat { BgColor = new Color(0.25f, 0.25f, 0.25f) };
-			sep.AddThemeStyleboxOverride("separator", style);
-			return sep;
-		}
+		private static HSeparator MakeSep() => UiTheme.Separator();
 
 		// ── Main panel ───────────────────────────────────────────────────────
 

@@ -354,26 +354,10 @@ namespace HoverTank
             GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");
         }
 
-        // ── Style helpers (duplicated from MainMenu/PauseMenu to keep each
-        //    script self-contained — only 3 methods, not worth extracting) ────
+        // ── Style helpers (shared palette/boxes live in UiTheme) ──────────────
 
-        private static StyleBoxFlat PanelStyle() => new()
-        {
-            BgColor                 = new Color(0f, 0f, 0f, 0.82f),
-            CornerRadiusTopLeft     = 8, CornerRadiusTopRight    = 8,
-            CornerRadiusBottomLeft  = 8, CornerRadiusBottomRight = 8,
-            ContentMarginLeft = 32, ContentMarginRight  = 32,
-            ContentMarginTop  = 24, ContentMarginBottom = 24,
-        };
-
-        private static StyleBoxFlat TransparentBox() =>
-            new() { BgColor = Colors.Transparent };
-
-        private static StyleBoxFlat HoverBox() => new()
-        {
-            BgColor                 = new Color(0.20f, 1.00f, 0.40f, 0.12f),
-            CornerRadiusTopLeft     = 4, CornerRadiusTopRight    = 4,
-            CornerRadiusBottomLeft  = 4, CornerRadiusBottomRight = 4,
-        };
+        private static StyleBoxFlat PanelStyle()     => UiTheme.PanelStyle(0.82f, 32);
+        private static StyleBoxFlat TransparentBox() => UiTheme.TransparentBox();
+        private static StyleBoxFlat HoverBox()       => UiTheme.HoverBox();
     }
 }
