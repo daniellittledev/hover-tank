@@ -28,3 +28,4 @@ ehthumbs.db
 # Visual-capture harness output
 tools/shot-*.png
 tools/hull-preview.png
+tools/terrain-shot-*.png
