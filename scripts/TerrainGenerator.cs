@@ -403,8 +403,8 @@ namespace HoverTank
 
         // Builds the finite TestDrive arena. Detail comes entirely from the
         // analytic TrackArena height field, so render and collision just sample
-        // it: the render is a grid of chunks, each carrying 2–3 prebuilt LOD
-        // meshes swapped by camera distance (Godot VisibilityRange); collision
+        // it: the render is a grid of chunks, each a single mesh — fine over the
+        // reachable disc, coarse for the distant backdrop mountains; collision
         // is one uniform heightfield over the reachable disc. The tank is kept
         // in by an invisible circular wall; mountains beyond it are backdrop.
         private void BuildTrackArena()
@@ -417,16 +417,17 @@ namespace HoverTank
             CreateCircularBoundary(TrackArena.BoundaryRadius, height: 120f, segments: 64);
         }
 
-        // ── Render: grid of LOD chunks ──────────────────────────────────────
-        private const float ChunkSize = 30f;   // world metres per chunk side
-        private const float ChunkSkirt = 6f;   // downward skirt to hide LOD seams
-        // Distance bands (camera→chunk-centre) and cell sizes for the 3 LODs.
-        private static readonly (float cell, float begin, float end)[] LodBands =
-        {
-            (1.0f,   0f,  62f),   // near: fine, ~no facets
-            (2.0f,  56f, 124f),   // mid
-            (4.0f, 118f,   0f),   // far: coarse (end 0 = no far cutoff)
-        };
+        // ── Render: grid of single-resolution chunks ────────────────────────
+        // No camera-distance LOD: the reachable disc is small enough (~165 m)
+        // that uniform fine chunks are cheap (~60k verts total), and uniform
+        // resolution means neighbouring chunks sample the analytic field at the
+        // same shared-edge world positions — so edges match exactly, with no
+        // cracks and no LOD cross-fade. (The old VisibilityRange fade dithered
+        // overlapping LODs and made their mismatched skirts flicker.)
+        private const float ChunkSize = 30f;     // world metres per chunk side
+        private const float ChunkSkirt = 6f;     // downward skirt to hide the fine↔coarse seam
+        private const float ReachableCell = 1.25f; // fine; matches collision sampling
+        private const float FarCell       = 4.0f;  // coarse backdrop mountains
 
         private void BuildChunkedTerrain()
         {
@@ -440,49 +441,31 @@ namespace HoverTank
                     float centerX = -TrackArena.RenderHalf + (cx + 0.5f) * ChunkSize;
                     float centerZ = -TrackArena.RenderHalf + (cz + 0.5f) * ChunkSize;
 
-                    var chunk = new Node3D
+                    // Chunks the tank can reach get the fine mesh; far backdrop
+                    // chunks (mountains) only need the coarse one.
+                    float dc = Mathf.Sqrt(centerX * centerX + centerZ * centerZ);
+                    float cell = dc < TrackArena.BoundaryRadius + 15f ? ReachableCell : FarCell;
+
+                    var inst = new MeshInstance3D
                     {
                         Name     = $"Chunk_{cx}_{cz}",
+                        Mesh     = BuildChunkMesh(centerX, centerZ, half, cell),
                         Position = new Vector3(centerX, 0f, centerZ),
                     };
-                    AddChild(chunk);
-
-                    // Chunks the tank can reach get the full LOD stack; far
-                    // backdrop chunks (mountains) only ever need the coarse mesh.
-                    float dc = Mathf.Sqrt(centerX * centerX + centerZ * centerZ);
-                    if (dc < TrackArena.BoundaryRadius + 15f)
-                    {
-                        foreach (var (cell, begin, end) in LodBands)
-                        {
-                            var inst = new MeshInstance3D
-                            {
-                                Mesh                     = BuildChunkMesh(centerX, centerZ, half, cell),
-                                VisibilityRangeBegin     = begin,
-                                VisibilityRangeEnd       = end,
-                                VisibilityRangeBeginMargin = begin > 0f ? 8f : 0f,
-                                VisibilityRangeEndMargin   = end   > 0f ? 8f : 0f,
-                                VisibilityRangeFadeMode  = GeometryInstance3D.VisibilityRangeFadeModeEnum.Self,
-                            };
-                            inst.SetSurfaceOverrideMaterial(0, _trackMaterial);
-                            chunk.AddChild(inst);
-                        }
-                    }
-                    else
-                    {
-                        var inst = new MeshInstance3D { Mesh = BuildChunkMesh(centerX, centerZ, half, 4f) };
-                        inst.SetSurfaceOverrideMaterial(0, _trackMaterial);
-                        chunk.AddChild(inst);
-                    }
+                    inst.SetSurfaceOverrideMaterial(0, _trackMaterial);
+                    AddChild(inst);
                 }
             }
         }
 
-        // One chunk LOD mesh in local space (centred on its chunk, [-half..half]
-        // on X/Z). Heights and smooth normals are sampled directly from the
+        // One chunk mesh in local space (centred on its chunk, [-half..half] on
+        // X/Z). Heights and smooth normals are sampled directly from the
         // analytic field — normals use a fixed-epsilon central difference so
-        // shading stays smooth (no visible facets) regardless of cell size and
-        // is consistent across LODs. A downward skirt around the perimeter hides
-        // cracks where a neighbour chunk is at a different LOD.
+        // shading stays smooth (no visible facets) regardless of cell size. A
+        // downward skirt around the perimeter hides the crack along the seam
+        // between the fine reachable ring and the coarse backdrop chunks. (Same-
+        // resolution neighbours share exact edges, so their coplanar, identically
+        // shaded skirts overlap invisibly.)
         private ArrayMesh BuildChunkMesh(float centerX, float centerZ, float half, float cell)
         {
             int verts = Mathf.RoundToInt(2f * half / cell) + 1;
@@ -713,11 +696,18 @@ void vertex() {
 
 void fragment() {
     // Subtle world-space panel grid (tiled-floor feel, stays put as you move).
-    vec2  gw   = abs(fract(world_pos.xz / grid_period) - 0.5);
-    float grid = smoothstep(0.5 - grid_width, 0.5, max(gw.x, gw.y));
-    ALBEDO     = mix(base_color, grid_color, grid * 0.7);
-    ROUGHNESS  = 0.82;
-    METALLIC   = 0.0;
+    // Derivative-based antialiasing: line thickness is measured in pixels via
+    // fwidth, so the lines stay ~1px and don't alias/moiré at distance or on
+    // grazing mountain slopes. The grid also fades out where cells shrink below
+    // a couple of pixels, instead of crawling into a shimmering haze.
+    vec2  coord = world_pos.xz / grid_period;
+    vec2  deriv = fwidth(coord);
+    vec2  gdist = abs(fract(coord - 0.5) - 0.5) / max(deriv, vec2(1e-5));
+    float line  = 1.0 - clamp(min(gdist.x, gdist.y) - grid_width, 0.0, 1.0);
+    float fade  = 1.0 - smoothstep(0.35, 1.0, max(deriv.x, deriv.y));
+    ALBEDO      = mix(base_color, grid_color, line * 0.7 * fade);
+    ROUGHNESS   = 0.82;
+    METALLIC    = 0.0;
 
     // Faint cool rim so ridge silhouettes catch a little light.
     float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
