@@ -48,6 +48,14 @@ namespace HoverTank
         [Export] public float AIMinigunBurstRest    = 1.0f;
         [Export] public float AIMinigunBurstJitter  = 0.4f;
 
+        // ── Barrel elevation limits ──────────────────────────────────────────
+        // Vertical fire angle relative to the tank's hull (XZ) plane. Negative is
+        // depression (firing below the plane), positive is elevation.
+        [Export] public float MinFireAngleDeg = -30f;
+        [Export] public float MaxFireAngleDeg =  60f;
+        private float _minFireRad;
+        private float _maxFireRad;
+
         // ── State ────────────────────────────────────────────────────────────
         public WeaponType CurrentWeapon { get; private set; } = WeaponType.MiniGun;
         private bool         _rocketAlternate;
@@ -121,6 +129,9 @@ namespace HoverTank
 
             _aiMinigunBurst = new BurstPacer(
                 AIMinigunBurstLength, AIMinigunBurstRest, AIMinigunBurstJitter);
+
+            _minFireRad = Mathf.DegToRad(MinFireAngleDeg);
+            _maxFireRad = Mathf.DegToRad(MaxFireAngleDeg);
 
             // Create muzzle flash lights parented to each fire point so they
             // move with the tank automatically.
@@ -224,7 +235,8 @@ namespace HoverTank
                     if (turretFwd.HasValue)
                     {
                         Vector3 tankFwd = -GlobalBasis.Z;
-                        miniAim = tankFwd.Lerp(turretFwd.Value, 0.05f).Normalized();
+                        Vector3 miniFwd = tankFwd.Lerp(turretFwd.Value, 0.05f).Normalized();
+                        miniAim = ElevateTowardAim(_miniGunLeft.GlobalPosition, miniFwd);
                     }
                     SpawnProjectile(_miniGunLeft,  ProjectileKind.Bullet, aimOverride: miniAim);
                     SpawnProjectile(_miniGunRight, ProjectileKind.Bullet, aimOverride: miniAim);
@@ -238,8 +250,11 @@ namespace HoverTank
                     // Rockets fire along turret aim and curve toward the crosshair target.
                     if (RocketAmmo <= 0) return false;
                     var rocketOrigin = _rocketAlternate ? _rocketRight : _rocketLeft;
+                    Vector3? rocketAim = turretFwd.HasValue
+                        ? ElevateTowardAim(rocketOrigin.GlobalPosition, turretFwd.Value)
+                        : null;
                     SpawnProjectile(rocketOrigin, ProjectileKind.Rocket,
-                                    aimOverride: turretFwd,
+                                    aimOverride: rocketAim,
                                     guidedTarget: AimTarget);
                     if (_rocketAlternate)
                         _rocketFlashRTimer = FlashDuration;
@@ -255,7 +270,10 @@ namespace HoverTank
                 case WeaponType.TankShell:
                     // Cannon shell fires along turret aim direction.
                     if (TankShellAmmo <= 0) return false;
-                    SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: turretFwd);
+                    Vector3? shellAim = turretFwd.HasValue
+                        ? ElevateTowardAim(_cannon.GlobalPosition, turretFwd.Value)
+                        : null;
+                    SpawnProjectile(_cannon, ProjectileKind.Shell, aimOverride: shellAim);
                     TankShellAmmo = Math.Max(0, TankShellAmmo - 1);
                     _cooldown = ShellInterval;
                     _cannonFlashTimer = FlashDuration;
@@ -265,6 +283,34 @@ namespace HoverTank
                     break;
             }
             return true;
+        }
+
+        // Combines turret-controlled horizontal aim with a vertical angle toward the
+        // crosshair's world target, so shots match where the cursor points. The pitch
+        // is clamped to [MinFireAngleDeg, MaxFireAngleDeg] relative to the hull plane.
+        // Keeps the supplied horizontal direction when no aim target is available.
+        private Vector3 ElevateTowardAim(Vector3 muzzlePos, Vector3 horizontalForward)
+        {
+            Vector3 up = (_tankBody?.GlobalBasis ?? GlobalBasis).Y;
+
+            Vector3 horizontal = horizontalForward - up * horizontalForward.Dot(up);
+            horizontal = horizontal.IsZeroApprox() ? horizontalForward.Normalized() : horizontal.Normalized();
+
+            float pitch = 0f;
+            if (AimTarget.HasValue)
+            {
+                Vector3 toTarget = AimTarget.Value - muzzlePos;
+                if (!toTarget.IsZeroApprox())
+                {
+                    Vector3 dir = toTarget.Normalized();
+                    float vertical = dir.Dot(up);
+                    float horizontalMag = (dir - up * vertical).Length();
+                    pitch = Mathf.Atan2(vertical, horizontalMag);
+                }
+            }
+            pitch = Mathf.Clamp(pitch, _minFireRad, _maxFireRad);
+
+            return (horizontal * Mathf.Cos(pitch) + up * Mathf.Sin(pitch)).Normalized();
         }
 
         private void SpawnProjectile(Marker3D origin, ProjectileKind kind,
